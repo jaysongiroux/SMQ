@@ -11,9 +11,6 @@ import (
 	"github.com/jaysongiroux/smq/internal/models"
 )
 
-// Scheduler is a stateless background process that:
-// 1. Finds messages that have reached their scheduled time and marks them as 'ready'
-// 2. Acts as a janitor to handle stale acquired messages and stale nodes
 type Scheduler struct {
 	config         *SchedulerConfig
 	store          db.Store
@@ -26,7 +23,6 @@ type Scheduler struct {
 	mu             sync.RWMutex
 }
 
-// SchedulerNode represents a single scheduler worker
 type SchedulerNode struct {
 	id             int
 	isRunning      bool
@@ -35,11 +31,9 @@ type SchedulerNode struct {
 	mu             sync.RWMutex
 }
 
-// NewScheduler creates a new scheduler instance with the specified number of nodes
 func NewScheduler(config *SchedulerConfig, store db.Store, numSchedulerNodes, numJanitorNodes int, log *logger.Logger) *Scheduler {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	// Create scheduler nodes
 	schedulerNodes := make([]*SchedulerNode, numSchedulerNodes)
 	for i := 0; i < numSchedulerNodes; i++ {
 		schedulerNodes[i] = &SchedulerNode{
@@ -47,7 +41,6 @@ func NewScheduler(config *SchedulerConfig, store db.Store, numSchedulerNodes, nu
 		}
 	}
 
-	// Create janitor nodes
 	janitorNodes := make([]*JanitorNode, numJanitorNodes)
 	for i := 0; i < numJanitorNodes; i++ {
 		janitorNodes[i] = &JanitorNode{
@@ -66,12 +59,10 @@ func NewScheduler(config *SchedulerConfig, store db.Store, numSchedulerNodes, nu
 	}
 }
 
-// Start begins the scheduler background processes
 func (s *Scheduler) Start() {
 	s.log.Info("Starting scheduler with %d scheduler nodes and %d janitor nodes",
 		len(s.schedulerNodes), len(s.janitorNodes))
 
-	// Start scheduler node loops
 	for _, node := range s.schedulerNodes {
 		node.mu.Lock()
 		node.isRunning = true
@@ -82,7 +73,6 @@ func (s *Scheduler) Start() {
 		s.log.Debug("Started scheduler node %d (poll interval: %v)", node.id, s.config.PollInterval)
 	}
 
-	// Start janitor node loops
 	for _, node := range s.janitorNodes {
 		node.mu.Lock()
 		node.isRunning = true
@@ -97,13 +87,11 @@ func (s *Scheduler) Start() {
 	s.log.Info("Scheduler started successfully")
 }
 
-// Stop gracefully stops the scheduler
 func (s *Scheduler) Stop() error {
 	s.log.Info("Stopping scheduler...")
 	s.cancel()
 	s.wg.Wait()
 
-	// Mark all nodes as stopped and log final stats
 	for _, node := range s.schedulerNodes {
 		node.mu.Lock()
 		s.log.Info("Scheduler node %d stopped (total messages marked: %d)", node.id, node.messagesMarked)
@@ -122,20 +110,17 @@ func (s *Scheduler) Stop() error {
 	return nil
 }
 
-// Health returns the aggregated health of all scheduler and janitor nodes
 func (s *Scheduler) Health() map[string]*models.ComponentHealth {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
 	health := make(map[string]*models.ComponentHealth)
 
-	// Get scheduler health
 	schedulerHealth := s.getSchedulerHealth()
 	for k, v := range schedulerHealth {
 		health[k] = v
 	}
 
-	// Get janitor health
 	janitorHealth := s.getJanitorHealth()
 	for k, v := range janitorHealth {
 		health[k] = v
@@ -144,7 +129,6 @@ func (s *Scheduler) Health() map[string]*models.ComponentHealth {
 	return health
 }
 
-// getSchedulerHealth returns the health status of all scheduler nodes
 func (s *Scheduler) getSchedulerHealth() map[string]*models.ComponentHealth {
 	health := make(map[string]*models.ComponentHealth)
 
@@ -178,11 +162,9 @@ func (s *Scheduler) getSchedulerHealth() map[string]*models.ComponentHealth {
 	return health
 }
 
-// schedulerLoop periodically marks pending messages as ready
 func (s *Scheduler) schedulerLoop(node *SchedulerNode) {
 	defer s.wg.Done()
 
-	// Apply jitter to prevent all nodes from polling at the same time
 	jitteredInterval := applyJitter(s.config.PollInterval, s.config.PollJitterPercent)
 	s.log.Debug("Scheduler node %d using interval %v (base: %v, jitter: %d%%)",
 		node.id, jitteredInterval, s.config.PollInterval, s.config.PollJitterPercent)
@@ -190,7 +172,6 @@ func (s *Scheduler) schedulerLoop(node *SchedulerNode) {
 	ticker := time.NewTicker(jitteredInterval)
 	defer ticker.Stop()
 
-	// Run immediately on start
 	s.markPendingMessagesReady(node)
 
 	for {
@@ -204,8 +185,6 @@ func (s *Scheduler) schedulerLoop(node *SchedulerNode) {
 	}
 }
 
-// markPendingMessagesReady executes the core scheduler query:
-// UPDATE messages SET status = 'ready' WHERE status = 'pending' AND scheduled_at <= NOW()
 func (s *Scheduler) markPendingMessagesReady(node *SchedulerNode) {
 	s.log.Debug("Scheduler node %d checking for pending messages", node.id)
 
@@ -214,7 +193,6 @@ func (s *Scheduler) markPendingMessagesReady(node *SchedulerNode) {
 
 	count, err := s.store.MarkPendingMessagesAsReady(ctx, time.Now())
 
-	// Update node stats
 	node.mu.Lock()
 	node.lastRun = time.Now()
 	if err == nil {

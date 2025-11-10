@@ -12,13 +12,11 @@ import (
 	"github.com/jaysongiroux/smq/internal/models"
 )
 
-// Handler handles HTTP requests for the producer layer
 type Handler struct {
 	producer *Producer
 	log      *logger.Logger
 }
 
-// NewHandler creates a new HTTP handler for the producer layer
 func NewHandler(producer *Producer, log *logger.Logger) *Handler {
 	return &Handler{
 		producer: producer,
@@ -26,15 +24,12 @@ func NewHandler(producer *Producer, log *logger.Logger) *Handler {
 	}
 }
 
-// RegisterRoutes registers all producer routes
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/v1/message", h.handleMessage)
 	mux.HandleFunc("/v1/message/", h.handleMessageWithID)
 }
 
-// handleMessage routes requests to /v1/message (no ID in path)
 func (h *Handler) handleMessage(w http.ResponseWriter, r *http.Request) {
-	// Only handle exact path match
 	if r.URL.Path != "/v1/message" {
 		http.NotFound(w, r)
 		return
@@ -48,9 +43,7 @@ func (h *Handler) handleMessage(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleMessageWithID routes requests to /v1/message/{id}
 func (h *Handler) handleMessageWithID(w http.ResponseWriter, r *http.Request) {
-	// Extract ID from path
 	if r.URL.Path == "/v1/message/" {
 		http.NotFound(w, r)
 		return
@@ -64,12 +57,9 @@ func (h *Handler) handleMessageWithID(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// CreateMessage handles POST /v1/message
-// Creates a new scheduled message
 func (h *Handler) CreateMessage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	// Read and limit request body
 	maxBodySize := int64(11 * 1024 * 1024) // 11 MB to account for JSON overhead
 	r.Body = http.MaxBytesReader(w, r.Body, maxBodySize)
 
@@ -83,7 +73,6 @@ func (h *Handler) CreateMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse request
 	var req models.CreateMessageRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		h.log.Warn("Failed to parse request body: %v", err)
@@ -94,11 +83,9 @@ func (h *Handler) CreateMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Create message
 	ctx := r.Context()
 	messageID, err := h.producer.CreateMessage(ctx, &req)
 	if err != nil {
-		// Error logging is handled in producer.CreateMessage
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{
 			"error": err.Error(),
@@ -106,7 +93,6 @@ func (h *Handler) CreateMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return success response with message ID
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"message_id":   messageID,
@@ -116,15 +102,11 @@ func (h *Handler) CreateMessage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// DeleteMessage handles DELETE /v1/message/:id
-// Deletes a message by ID
 func (h *Handler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	// Extract ID from path (everything after /v1/message/)
 	idStr := strings.TrimPrefix(r.URL.Path, "/v1/message/")
 
-	// Validate UUID format
 	messageID, err := uuid.Parse(idStr)
 	if err != nil {
 		h.log.Warn("Invalid UUID format: %s", idStr)
@@ -135,10 +117,8 @@ func (h *Handler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Delete message
 	ctx := r.Context()
 	if err := h.producer.DeleteMessage(ctx, messageID); err != nil {
-		// Check if it's a "not found" error
 		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "no rows") {
 			w.WriteHeader(http.StatusNotFound)
 			json.NewEncoder(w).Encode(map[string]string{

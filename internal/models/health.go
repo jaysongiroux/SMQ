@@ -2,7 +2,6 @@ package models
 
 import "time"
 
-// NodeHealth represents the health status of a single node
 type NodeHealth struct {
 	NodeID        string    `json:"node_id"`
 	NodeType      string    `json:"node_type"` // producer, consumer, scheduler
@@ -11,7 +10,6 @@ type NodeHealth struct {
 	Region        *string   `json:"region,omitempty"`
 }
 
-// ClusterHealth represents the overall health of the cluster
 type ClusterHealth struct {
 	Status       string       `json:"status"` // healthy, degraded, unhealthy
 	TotalNodes   int          `json:"total_nodes"`

@@ -10,4 +10,3 @@ type Node struct {
 	RegisteredAt time.Time              `json:"registered_at" db:"registered_at"`
 	Metadata     map[string]interface{} `json:"metadata,omitempty" db:"metadata"`
 }
-

@@ -7,7 +7,6 @@ import (
 	"github.com/jaysongiroux/smq/internal/logger"
 )
 
-// startHTTPServer creates and starts an HTTP server in a goroutine
 func StartHTTPServer(addr string, handler http.Handler, log *logger.Logger) *http.Server {
 	server := &http.Server{
 		Addr:         addr,

@@ -44,31 +44,47 @@ func (h *Handler) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 // GetHealth handles GET /v1/health
 // Returns paginated list of all nodes' health from the database
+// QUERY PARAMS:
+// - limit: number of nodes to return (default: 100)
+// - offset: number of nodes to skip (default: 0)
 func (h *Handler) GetHealth(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	// Parse pagination parameters
 	limitStr := r.URL.Query().Get("limit")
 	offsetStr := r.URL.Query().Get("offset")
 
-	limit := 100 // default
-	offset := 0  // default
+	// default values
+	limit := 100
+	offset := 0
 
 	if limitStr != "" {
-		if parsedLimit, err := strconv.Atoi(limitStr); err == nil && parsedLimit > 0 {
-			limit = parsedLimit
+		parsedLimit, err := strconv.Atoi(limitStr)
+		if err != nil || parsedLimit < 1 {
+			h.log.Warn("Invalid limit parameter: %s", limitStr)
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "Invalid limit parameter - must be a positive integer",
+			})
+			return
 		}
+		limit = parsedLimit
 	}
 
 	if offsetStr != "" {
-		if parsedOffset, err := strconv.Atoi(offsetStr); err == nil && parsedOffset >= 0 {
-			offset = parsedOffset
+		parsedOffset, err := strconv.Atoi(offsetStr)
+		if err != nil || parsedOffset < 0 {
+			h.log.Warn("Invalid offset parameter: %s", offsetStr)
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "Invalid offset parameter - must be a non-negative integer",
+			})
+			return
 		}
+		offset = parsedOffset
 	}
 
 	h.log.Debug("Fetching cluster health (limit=%d, offset=%d)", limit, offset)
 
-	// Get all nodes from database
 	nodes, err := h.checker.Store().ListNodes(ctx, limit, offset)
 	if err != nil {
 		h.log.Error("Failed to list nodes: %v", err)
@@ -80,17 +96,15 @@ func (h *Handler) GetHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build response with pagination info
-	response := map[string]interface{}{
+	response := map[string]any{
 		"nodes": nodes,
-		"pagination": map[string]interface{}{
+		"pagination": map[string]any{
 			"limit":  limit,
 			"offset": offset,
 			"count":  len(nodes),
 		},
 	}
 
-	// Return appropriate HTTP status based on system health
 	statusCode := http.StatusOK
 
 	w.Header().Set("Content-Type", "application/json")

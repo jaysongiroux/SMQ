@@ -32,12 +32,10 @@ type HealthChecker struct {
 	previousStatus  models.HealthStatus
 }
 
-// Store returns the database store for use by the handler
 func (h *HealthChecker) Store() db.Store {
 	return h.store
 }
 
-// NewHealthChecker creates a new health checker instance
 func NewHealthChecker(config *config.Config, store db.Store, nodeID string, checkInterval time.Duration, log *logger.Logger) *HealthChecker {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -54,19 +52,15 @@ func NewHealthChecker(config *config.Config, store db.Store, nodeID string, chec
 	}
 }
 
-// RegisterReporter adds a component that can report health
 func (h *HealthChecker) RegisterReporter(reporter models.HealthReporter) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.reporters = append(h.reporters, reporter)
 
-	// Log component registration
 	componentHealth := reporter.Health()
 	h.log.Debug("Registered health reporter: %s", componentHealth.Name)
 }
 
-// RegisterSchedulerHealth registers the scheduler's special health function
-// Scheduler returns multiple node healths in a map
 func (h *HealthChecker) RegisterSchedulerHealth(healthFunc func() map[string]*models.ComponentHealth) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -74,7 +68,6 @@ func (h *HealthChecker) RegisterSchedulerHealth(healthFunc func() map[string]*mo
 	h.log.Debug("Registered scheduler health reporter (multi-node)")
 }
 
-// Start begins health monitoring as its own routine
 func (h *HealthChecker) Start() error {
 	h.log.Info("Starting health checker routine (interval: %v)", h.checkInterval)
 	h.wg.Add(1)
@@ -82,7 +75,6 @@ func (h *HealthChecker) Start() error {
 	return nil
 }
 
-// Stop gracefully stops health monitoring
 func (h *HealthChecker) Stop() error {
 	h.log.Info("Stopping health checker routine")
 	h.cancel()
@@ -91,14 +83,12 @@ func (h *HealthChecker) Stop() error {
 	return nil
 }
 
-// healthCheckLoop periodically checks all layer health and stores in database
 func (h *HealthChecker) healthCheckLoop() {
 	defer h.wg.Done()
 
 	ticker := time.NewTicker(h.checkInterval)
 	defer ticker.Stop()
 
-	// Run immediately on start
 	h.checkAndStoreHealth()
 
 	for {
@@ -112,7 +102,6 @@ func (h *HealthChecker) healthCheckLoop() {
 	}
 }
 
-// checkAndStoreHealth collects health from all layers and stores in database
 func (h *HealthChecker) checkAndStoreHealth() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -127,15 +116,12 @@ func (h *HealthChecker) checkAndStoreHealth() {
 		Region:    h.config.Region,
 	}
 
-	// Collect from simple reporters (producer, consumer, buffer)
 	for _, reporter := range h.reporters {
 		componentHealth := reporter.Health()
 		layerName := componentHealth.Name
 
-		// Log component health at debug level
 		h.log.Debug("Component %s: %s - %s", layerName, componentHealth.Status, componentHealth.Message)
 
-		// Create layer if it doesn't exist
 		if systemHealth.Layers[layerName] == nil {
 			systemHealth.Layers[layerName] = &models.LayerHealth{
 				Name:   layerName,
@@ -144,10 +130,8 @@ func (h *HealthChecker) checkAndStoreHealth() {
 			}
 		}
 
-		// Single-node layers use the component name as node ID
-		systemHealth.Layers[layerName].Nodes[layerName] = componentHealth
+		systemHealth.Layers[layerName].Nodes[componentHealth.Name] = componentHealth
 
-		// Update layer status to worst status
 		if componentHealth.Status == models.HealthStatusUnhealthy {
 			systemHealth.Layers[layerName].Status = models.HealthStatusUnhealthy
 			h.log.Warn("Layer %s is unhealthy: %s", layerName, componentHealth.Message)
@@ -158,7 +142,6 @@ func (h *HealthChecker) checkAndStoreHealth() {
 		}
 	}
 
-	// Collect from scheduler (multi-node layer)
 	if h.schedulerHealth != nil {
 		schedulerNodes := h.schedulerHealth()
 
@@ -168,7 +151,6 @@ func (h *HealthChecker) checkAndStoreHealth() {
 			Nodes:  schedulerNodes,
 		}
 
-		// Determine worst status across all scheduler nodes
 		for nodeName, nodeHealth := range schedulerNodes {
 			h.log.Debug("Scheduler node %s: %s - %s", nodeName, nodeHealth.Status, nodeHealth.Message)
 
@@ -183,14 +165,12 @@ func (h *HealthChecker) checkAndStoreHealth() {
 		}
 	}
 
-	// Determine overall system status (worst of all layers)
 	var unhealthyComponents []string
 	var degradedComponents []string
 
 	for layerName, layer := range systemHealth.Layers {
 		if layer.Status == models.HealthStatusUnhealthy {
 			systemHealth.Status = models.HealthStatusUnhealthy
-			// Collect unhealthy component details
 			for nodeName, node := range layer.Nodes {
 				if node.Status == models.HealthStatusUnhealthy {
 					unhealthyComponents = append(unhealthyComponents, fmt.Sprintf("%s/%s", layerName, nodeName))
@@ -199,7 +179,6 @@ func (h *HealthChecker) checkAndStoreHealth() {
 		} else if layer.Status == models.HealthStatusDegraded &&
 			systemHealth.Status != models.HealthStatusUnhealthy {
 			systemHealth.Status = models.HealthStatusDegraded
-			// Collect degraded component details
 			for nodeName, node := range layer.Nodes {
 				if node.Status == models.HealthStatusDegraded {
 					degradedComponents = append(degradedComponents, fmt.Sprintf("%s/%s", layerName, nodeName))
@@ -208,7 +187,6 @@ func (h *HealthChecker) checkAndStoreHealth() {
 		}
 	}
 
-	// Log status change
 	if h.previousStatus != systemHealth.Status {
 		h.log.Info("System health status changed: %s -> %s", h.previousStatus, systemHealth.Status)
 		h.previousStatus = systemHealth.Status
@@ -238,9 +216,7 @@ func (h *HealthChecker) checkAndStoreHealth() {
 	h.storeHealthInDatabase()
 }
 
-// storeHealthInDatabase persists the current system health to the database node metadata
 func (h *HealthChecker) storeHealthInDatabase() {
-	// Convert system health to metadata map
 	healthJSON, err := json.Marshal(h.systemHealth)
 	if err != nil {
 		h.log.Error("Failed to marshal health data: %v", err)

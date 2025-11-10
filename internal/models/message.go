@@ -54,16 +54,13 @@ type UnixTime struct {
 	time.Time
 }
 
-// UnmarshalJSON implements custom JSON unmarshaling for Unix timestamps
 func (ut *UnixTime) UnmarshalJSON(data []byte) error {
-	// Try to unmarshal as integer (Unix timestamp)
 	var timestamp int64
 	if err := json.Unmarshal(data, &timestamp); err == nil {
 		ut.Time = time.Unix(timestamp, 0)
 		return nil
 	}
 
-	// Try to unmarshal as RFC3339 string
 	var timeStr string
 	if err := json.Unmarshal(data, &timeStr); err == nil {
 		parsed, err := time.Parse(time.RFC3339, timeStr)
@@ -77,22 +74,18 @@ func (ut *UnixTime) UnmarshalJSON(data []byte) error {
 	return json.Unmarshal(data, &ut.Time)
 }
 
-// MarshalJSON implements custom JSON marshaling for Unix timestamps
 func (ut UnixTime) MarshalJSON() ([]byte, error) {
 	return json.Marshal(ut.Unix())
 }
 
-// AckRequest represents a message acknowledgment request
 type AckRequest struct {
 	MessageID uuid.UUID `json:"message_id"`
 }
 
-// NackRequest represents a message negative acknowledgment request
 type NackRequest struct {
 	MessageID uuid.UUID `json:"message_id"`
 }
 
-// PollRequest represents parameters for polling messages
 type PollRequest struct {
 	Channels []string `json:"channels"`
 	Max      int      `json:"max"`

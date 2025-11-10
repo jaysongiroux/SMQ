@@ -15,7 +15,6 @@ import (
 	"github.com/jaysongiroux/smq/internal/models"
 )
 
-// Producer handles message creation and deletion
 type Producer struct {
 	config           *config.Config
 	store            db.Store
@@ -32,7 +31,6 @@ type Producer struct {
 	maxPayloadSizeKB int
 }
 
-// NewProducer creates a new producer instance
 func NewProducer(store db.Store, buf buffer.Buffer, log *logger.Logger, maxPayloadSizeKB int, config *config.Config) *Producer {
 	return &Producer{
 		store:            store,
@@ -43,7 +41,6 @@ func NewProducer(store db.Store, buf buffer.Buffer, log *logger.Logger, maxPaylo
 	}
 }
 
-// Start initializes the producer
 func (p *Producer) Start() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -55,7 +52,6 @@ func (p *Producer) Start() error {
 	return nil
 }
 
-// Stop gracefully stops the producer
 func (p *Producer) Stop() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -67,7 +63,6 @@ func (p *Producer) Stop() error {
 	return nil
 }
 
-// Health returns the current health status of the producer
 func (p *Producer) Health() *models.ComponentHealth {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -97,7 +92,6 @@ func (p *Producer) Health() *models.ComponentHealth {
 	}
 }
 
-// formatError safely formats an error for JSON
 func formatError(err error) interface{} {
 	if err == nil {
 		return nil
@@ -105,14 +99,11 @@ func formatError(err error) interface{} {
 	return err.Error()
 }
 
-// CreateMessage creates a new message and adds it to the buffer
-// Returns the generated message ID (UUID v7)
 func (p *Producer) CreateMessage(ctx context.Context, req *models.CreateMessageRequest) (uuid.UUID, error) {
 	p.mu.Lock()
 	p.lastActive = time.Now()
 	p.mu.Unlock()
 
-	// Validate request
 	if req.Channel == "" {
 		p.log.Warn("Message creation failed: channel is required")
 		p.mu.Lock()
@@ -131,7 +122,6 @@ func (p *Producer) CreateMessage(ctx context.Context, req *models.CreateMessageR
 		return uuid.Nil, fmt.Errorf("payload is required")
 	}
 
-	// Validate payload is valid JSON
 	if !json.Valid(req.Payload) {
 		p.log.Warn("Message creation failed: payload is not valid JSON")
 		p.mu.Lock()
@@ -141,7 +131,6 @@ func (p *Producer) CreateMessage(ctx context.Context, req *models.CreateMessageR
 		return uuid.Nil, fmt.Errorf("payload must be valid JSON")
 	}
 
-	// validate scheduled at is in the future by at least min_scheduled_at_future_ms
 	scheduledAt := req.ScheduledAt.Time
 	futureInterval := p.config.MinScheduledAtFutureMs
 	if scheduledAt.Before(time.Now().Add(time.Duration(futureInterval) * time.Millisecond)) {
@@ -153,7 +142,6 @@ func (p *Producer) CreateMessage(ctx context.Context, req *models.CreateMessageR
 		return uuid.Nil, fmt.Errorf("scheduled at is not in the future by at least %d ms", futureInterval)
 	}
 
-	// Validate payload size
 	payloadSizeBytes := len(req.Payload)
 	payloadSizeKB := payloadSizeBytes / 1024
 	if payloadSizeKB > p.maxPayloadSizeKB {
@@ -166,16 +154,13 @@ func (p *Producer) CreateMessage(ctx context.Context, req *models.CreateMessageR
 		return uuid.Nil, fmt.Errorf("payload size %d KB exceeds maximum %d KB", payloadSizeKB, p.maxPayloadSizeKB)
 	}
 
-	// Generate UUID v7 (time-ordered)
 	messageID := uuid.Must(uuid.NewV7())
 
-	// Create message model
 	now := time.Now()
 	if scheduledAt.IsZero() {
 		scheduledAt = now
 	}
 
-	// Determine initial status based on scheduled time
 	status := models.StatusReady
 	if scheduledAt.After(now) {
 		status = models.StatusPending
@@ -191,7 +176,6 @@ func (p *Producer) CreateMessage(ctx context.Context, req *models.CreateMessageR
 		CreatedAt:   now,
 	}
 
-	// Add message to buffer
 	p.log.Debug("Adding message %s to buffer (channel: %s, scheduled_at: %s, status: %s)",
 		messageID, req.Channel, scheduledAt.Format(time.RFC3339), status)
 
@@ -204,7 +188,6 @@ func (p *Producer) CreateMessage(ctx context.Context, req *models.CreateMessageR
 		return uuid.Nil, fmt.Errorf("failed to add message to buffer: %w", err)
 	}
 
-	// Update metrics
 	p.mu.Lock()
 	p.messagesCreated++
 	p.lastError = nil
@@ -217,7 +200,7 @@ func (p *Producer) CreateMessage(ctx context.Context, req *models.CreateMessageR
 }
 
 // DeleteMessage deletes a message by ID from the database
-// Note: This does not remove messages from the buffer (buffer messages will be flushed normally)
+// TODO: Remove messages from the buffer (buffer messages will be flushed normally)
 func (p *Producer) DeleteMessage(ctx context.Context, messageID uuid.UUID) error {
 	p.mu.Lock()
 	p.lastActive = time.Now()

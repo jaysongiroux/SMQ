@@ -47,10 +47,6 @@ func main() {
 	log.Info("Using datastore: %s", cfg.Datastore)
 	log.Debug("Log level configured from %s", cfg.ConfigPath)
 
-	// TODO: update health to reflect node is starting up
-	// TODO: update health to reflect node is ready
-	// TODO: update health to reflect node is failed
-
 	// Create database store using factory (automatically selects correct implementation)
 	dbLog := log.WithService("database")
 	store, err := dbfactory.NewStore(cfg, dbLog)

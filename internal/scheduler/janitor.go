@@ -9,7 +9,6 @@ import (
 	"github.com/jaysongiroux/smq/internal/models"
 )
 
-// JanitorNode represents a single janitor worker
 type JanitorNode struct {
 	id                int
 	isRunning         bool
@@ -20,11 +19,9 @@ type JanitorNode struct {
 	mu                sync.RWMutex
 }
 
-// janitorLoop periodically cleans up stale acquired messages and stale nodes
 func (s *Scheduler) janitorLoop(node *JanitorNode) {
 	defer s.wg.Done()
 
-	// Apply jitter to prevent all nodes from cleaning at the same time
 	jitteredInterval := applyJitter(s.config.JanitorInterval, s.config.JanitorJitterPercent)
 	s.log.Debug("Janitor node %d using interval %v (base: %v, jitter: %d%%)",
 		node.id, jitteredInterval, s.config.JanitorInterval, s.config.JanitorJitterPercent)
@@ -32,7 +29,6 @@ func (s *Scheduler) janitorLoop(node *JanitorNode) {
 	ticker := time.NewTicker(jitteredInterval)
 	defer ticker.Stop()
 
-	// Run immediately on start
 	s.cleanupStaleMessages(node)
 	s.cleanupStaleNodes(node)
 	s.cleanupFailedMessages(node)
@@ -50,8 +46,6 @@ func (s *Scheduler) janitorLoop(node *JanitorNode) {
 	}
 }
 
-// cleanupStaleMessages handles messages that remain 'acquired' for too long
-// This happens when a consumer node dies without sending an ack/nack
 func (s *Scheduler) cleanupStaleMessages(node *JanitorNode) {
 	s.log.Debug("Janitor node %d checking for stale messages (threshold: %v)",
 		node.id, s.config.StaleAcquiredThreshold)
@@ -80,8 +74,6 @@ func (s *Scheduler) cleanupStaleMessages(node *JanitorNode) {
 	s.log.Info("Janitor node %d recovered %d stale messages", node.id, count)
 }
 
-// cleanupStaleNodes removes nodes that haven't been seen within the stale threshold
-// This handles cases where a node dies without properly shutting down
 func (s *Scheduler) cleanupStaleNodes(node *JanitorNode) {
 	s.log.Debug("Janitor node %d checking for stale nodes (threshold: %v)",
 		node.id, s.config.StaleNodeThreshold)
@@ -126,7 +118,6 @@ func (s *Scheduler) cleanupFailedMessages(node *JanitorNode) {
 	s.log.Info("Janitor node %d cleaned up %d failed messages", node.id, count)
 }
 
-// getJanitorHealth returns the health status of all janitor nodes
 func (s *Scheduler) getJanitorHealth() map[string]*models.ComponentHealth {
 	health := make(map[string]*models.ComponentHealth)
 

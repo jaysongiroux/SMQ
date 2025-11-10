@@ -10,8 +10,6 @@ import (
 	"github.com/jaysongiroux/smq/internal/logger"
 )
 
-// NewStore creates a new database store based on the configuration
-// It reads the "datastore" value from config and returns the appropriate implementation
 func NewStore(cfg *config.Config, log *logger.Logger) (db.Store, error) {
 	switch cfg.Datastore {
 	case config.DatastorePostgres:
@@ -23,7 +21,6 @@ func NewStore(cfg *config.Config, log *logger.Logger) (db.Store, error) {
 	}
 }
 
-// newPostgresStore creates a PostgreSQL store from config
 func newPostgresStore(cfg *config.Config, log *logger.Logger) (db.Store, error) {
 	dbConfig := &db.PGConfig{
 		ConnectionString:            cfg.PostgresURL,
@@ -38,19 +35,12 @@ func newPostgresStore(cfg *config.Config, log *logger.Logger) (db.Store, error) 
 	return postgres.NewPostgresStore(dbConfig, log)
 }
 
-// newCockroachStore creates a CockroachDB store from config
 func newCockroachStore(cfg *config.Config, log *logger.Logger) (db.Store, error) {
-	// Get region and throw error if not set
-	region := cfg.CockroachRegion
-	if region == "" {
-		return nil, fmt.Errorf("cockroach_region is not set")
-	}
-
 	dbConfig := &db.PGConfig{
 		ConnectionString:            cfg.CockroachURL,
 		MaxOpenConns:                cfg.CockroachMaxOpenConns,
 		MaxIdleConns:                cfg.CockroachMaxIdleConns,
-		Region:                      &region,
+		Region:                      &cfg.CockroachRegion,
 		MaxRetries:                  cfg.MaxRetries,
 		JanitorDeleteFailedMessages: cfg.JanitorDeleteFailedMessages,
 		MultiRegionSupplement:       cfg.MultiRegionSupplement,
