@@ -20,6 +20,7 @@
   "min_scheduled_at_future_ms": 5000,
   "janitor_delete_failed_messages": true,
   "buffer_type": "disk",
+  "datastore": "cockroach",
   "buffer_wal_path": "./smq_wal.log",
   "multi_region_supplement": false,
   "multi_region_scheduler": false,
