@@ -28,6 +28,5 @@
   "cockroach_max_idle_conns": 5,
   "postgres_max_open_conns": 25,
   "postgres_max_idle_conns": 5,
-  "node_id": "1234567890",
   "buffer_max_size_kb": 10
 }
