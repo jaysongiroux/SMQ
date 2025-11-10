@@ -1,0 +1,39 @@
+# Git files
+.git
+.gitignore
+
+# Documentation
+*.md
+!README.md
+
+# Build artifacts
+bin/
+*.log
+smq_wal.log
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test files
+*_test.go
+
+# Docker files
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# CI/CD
+.github/
+
+# Development files
+.env
+.env.*
+
+# Temporary files
+tmp/
+temp/
+

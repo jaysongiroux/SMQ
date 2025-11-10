@@ -1,0 +1,39 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: smq-postgres
+    environment:
+      POSTGRES_DB: smq
+      POSTGRES_USER: smq
+      POSTGRES_PASSWORD: smq
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  smq:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: smq
+    env_file:
+      - .env
+    environment:
+      - SMQ_CONFIG_PATH=/config.json
+    ports:
+      - "8081:8081" # Producer API
+      - "8082:8082" # Consumer API
+      - "8083:8083" # Health API
+    volumes:
+      # Mount config.json
+      - ./config.json:/config.json:ro
+      # Mount data directory for WAL (if using disk buffer)
+      - smq_data:/data
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  smq_data:
+  cockroach_data:
