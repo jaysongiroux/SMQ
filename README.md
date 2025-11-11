@@ -13,21 +13,21 @@ graph TB
 
     subgraph "SMQ Application Nodes"
         subgraph "Producer Service"
-            PA[Producer API<br/>POST /v1/message<br/>DELETE /v1/message/:id]
+            PA[Producer API<br/>POST /v1/message<br/>DELETE /v1/message/:id<br/><i>Single Instance</i>]
         end
         
         subgraph "Consumer Service"
-            CA[Consumer API<br/>GET /v1/channels/:channel/poll<br/>POST /v1/messages/ack<br/>POST /v1/messages/nack]
+            CA[Consumer API<br/>GET /v1/channels/:channel/poll<br/>POST /v1/messages/ack<br/>POST /v1/messages/nack<br/><i>Single Instance</i>]
         end
         
         subgraph "Background Processes"
-            S[Scheduler Process<br/>Marks messages as 'ready']
-            J[Janitor Process<br/>Handles stale messages]
-            B[Buffer Workers<br />Memory or disk/WAL<br/>Batch write to DB]
+            S[Scheduler Process<br/>Marks messages as 'ready'<br/><i>Multiple Instances</i>]
+            J[Janitor Process<br/>Handles stale messages<br/><i>Multiple Instances</i>]
+            B[Buffer Workers<br/>Memory or disk/WAL<br/>Batch write to DB<br/><i>Multiple Workers</i>]
         end
         
         subgraph "Health Service"
-            H[Health API<br/>GET /v1/health]
+            H[Health API<br/>GET /v1/health<br/>Monitors all services<br/><i>Single Instance</i>]
         end
     end
 
@@ -38,21 +38,26 @@ graph TB
     %% Producer flow
     P -->|Create/Delete Message| PA
     PA -->|Write to Buffer| B
-    B --> DB
+    B -->|Batch Insert| DB
 
     %% Consumer flow
     C -->|Poll/Ack/Nack| CA
     CA -->|SELECT FOR UPDATE<br/>SKIP LOCKED| DB
 
     %% Scheduler flow
-    S --> DB
+    S -->|UPDATE messages<br/>to 'ready'| DB
 
     %% Janitor flow
-    J --> DB
+    J -->|Cleanup stale<br/>messages & nodes| DB
 
-    %% Health flow
+    %% Health monitoring flow
     M -->|Check Health| H
-    H -->|Query Cluster<br/>Metadata| DB
+    H -.->|Monitor| PA
+    H -.->|Monitor| CA
+    H -.->|Monitor| S
+    H -.->|Monitor| J
+    H -.->|Monitor| B
+    H -->|Store Health<br/>Metadata| DB
 
     style DB fill:#e1f5ff
     style PA fill:#ffe1e1
