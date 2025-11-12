@@ -12,30 +12,14 @@ permissions:
   contents: write
 
 jobs:
-  verify:
-    name: Verify CI Passed
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Verify CI passed
-        run: |
-          # Get the status of the CI workflow for the current commit
-          STATUS=$(gh run list --workflow=ci.yml --branch=${{ github.ref_name }} --limit 1 --json conclusion --jq '.[0].conclusion')
-          if [ "$STATUS" != "success" ]; then
-            echo "Error: CI workflow has not passed for this commit"
-            echo "Current CI status: $STATUS"
-            exit 1
-          fi
-          echo "✓ CI workflow passed"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  ci:
+    name: Run CI
+    uses: ./.github/workflows/ci.yml
 
   build:
     name: Build ${{ matrix.goos }}-${{ matrix.goarch }}
     runs-on: ubuntu-latest
-    needs: verify
+    needs: ci
     strategy:
       matrix:
         include:
