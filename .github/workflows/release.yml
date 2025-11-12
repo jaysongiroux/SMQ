@@ -8,10 +8,47 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: write
+
 jobs:
-  release:
-    name: Build and Release
+  verify:
+    name: Verify CI Passed
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Verify CI passed
+        run: |
+          # Get the status of the CI workflow for the current commit
+          STATUS=$(gh run list --workflow=ci.yml --branch=${{ github.ref_name }} --limit 1 --json conclusion --jq '.[0].conclusion')
+          if [ "$STATUS" != "success" ]; then
+            echo "Error: CI workflow has not passed for this commit"
+            echo "Current CI status: $STATUS"
+            exit 1
+          fi
+          echo "✓ CI workflow passed"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  build:
+    name: Build ${{ matrix.goos }}-${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    needs: verify
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -32,32 +69,31 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - name: Verify CI passed
+      - name: Build binary
         run: |
-          # Get the status of the CI workflow for the current commit
-          STATUS=$(gh run list --workflow=ci.yml --branch=${{ github.ref_name }} --limit 1 --json conclusion --jq '.[0].conclusion')
-          if [ "$STATUS" != "success" ]; then
-            echo "Error: CI workflow has not passed for this commit"
-            echo "Current CI status: $STATUS"
-            exit 1
+          BINARY_NAME="smq-${{ matrix.goos }}-${{ matrix.goarch }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            BINARY_NAME="${BINARY_NAME}.exe"
           fi
-          echo "✓ CI workflow passed"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} go build -o "${BINARY_NAME}" -ldflags="-s -w -X main.version=${{ github.event.inputs.version }}" .
 
-      - name: Build for Linux
-        run: |
-          GOOS=linux GOARCH=amd64 go build -o bin/smq-linux-amd64 -ldflags="-s -w -X main.version=${{ github.event.inputs.version }}" .
-          GOOS=linux GOARCH=arm64 go build -o bin/smq-linux-arm64 -ldflags="-s -w -X main.version=${{ github.event.inputs.version }}" .
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: smq-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: smq-*
+          retention-days: 1
 
-      - name: Build for macOS
-        run: |
-          GOOS=darwin GOARCH=amd64 go build -o bin/smq-darwin-amd64 -ldflags="-s -w -X main.version=${{ github.event.inputs.version }}" .
-          GOOS=darwin GOARCH=arm64 go build -o bin/smq-darwin-arm64 -ldflags="-s -w -X main.version=${{ github.event.inputs.version }}" .
-
-      - name: Build for Windows
-        run: |
-          GOOS=windows GOARCH=amd64 go build -o bin/smq-windows-amd64.exe -ldflags="-s -w -X main.version=${{ github.event.inputs.version }}" .
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: bin
+          merge-multiple: true
 
       - name: Create checksums
         run: |
