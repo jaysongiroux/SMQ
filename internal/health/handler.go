@@ -62,9 +62,14 @@ func (h *Handler) GetHealth(w http.ResponseWriter, r *http.Request) {
 		if err != nil || parsedLimit < 1 {
 			h.log.Warn("Invalid limit parameter: %s", limitStr)
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
+			err := json.NewEncoder(w).Encode(map[string]string{
 				"error": "Invalid limit parameter - must be a positive integer",
 			})
+			if err != nil {
+				h.log.Error("Failed to encode response: %v", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
 			return
 		}
 		limit = parsedLimit
@@ -75,9 +80,14 @@ func (h *Handler) GetHealth(w http.ResponseWriter, r *http.Request) {
 		if err != nil || parsedOffset < 0 {
 			h.log.Warn("Invalid offset parameter: %s", offsetStr)
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
+			err := json.NewEncoder(w).Encode(map[string]string{
 				"error": "Invalid offset parameter - must be a non-negative integer",
 			})
+			if err != nil {
+				h.log.Error("Failed to encode response: %v", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
 			return
 		}
 		offset = parsedOffset
@@ -90,9 +100,14 @@ func (h *Handler) GetHealth(w http.ResponseWriter, r *http.Request) {
 		h.log.Error("Failed to list nodes: %v", err)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{
+		err := json.NewEncoder(w).Encode(map[string]string{
 			"error": "failed to get cluster health",
 		})
+		if err != nil {
+			h.log.Error("Failed to encode response: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		return
 	}
 
@@ -109,5 +124,10 @@ func (h *Handler) GetHealth(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(response)
+	err = json.NewEncoder(w).Encode(response)
+	if err != nil {
+		h.log.Error("Failed to encode response: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 
@@ -181,7 +182,7 @@ func NewConfig() (*Config, error) {
 	}
 
 	// Load JSON config file
-	file, err := os.ReadFile(configPath)
+	file, err := os.ReadFile(filepath.Clean(configPath))
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}

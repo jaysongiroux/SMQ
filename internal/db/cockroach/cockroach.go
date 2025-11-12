@@ -171,7 +171,12 @@ func (s *CockroachStore) acquireMessages(ctx context.Context, channel string, li
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		err = tx.Rollback()
+		if err != nil {
+			s.log.Error("Failed to rollback transaction: %v", err)
+		}
+	}()
 
 	// This is the base atomic query.
 	atomicAcquireQuery := `
@@ -214,7 +219,12 @@ func (s *CockroachStore) acquireMessages(ctx context.Context, channel string, li
 		s.log.Error("Failed to atomically acquire messages (localOnly=%t) for channel %s: %v. Query: %s", localOnly, channel, err, finalQuery)
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		err = rows.Close()
+		if err != nil {
+			s.log.Error("Failed to close rows: %v", err)
+		}
+	}()
 
 	var messages []*models.Message
 	for rows.Next() {

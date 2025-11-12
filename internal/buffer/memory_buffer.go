@@ -317,35 +317,23 @@ func (b *MemoryBuffer) flushWorker(workerID int) {
 
 // retryFlush attempts to retry a failed flush with exponential backoff
 func (b *MemoryBuffer) retryFlush(workerID int) {
-	maxRetries := 3
-	baseDelay := 100 * time.Millisecond
-
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		delay := baseDelay * time.Duration(1<<uint(attempt-1)) // Exponential backoff
-		b.log.Warn("Flush worker %d retrying flush in %v (attempt %d/%d)",
-			workerID, delay, attempt, maxRetries)
-
-		select {
-		case <-time.After(delay):
-			if err := b.flush(); err != nil {
-				b.log.Error("Flush worker %d retry attempt %d failed: %v",
-					workerID, attempt, err)
-				if attempt == maxRetries {
-					b.log.Error("Flush worker %d exhausted all retry attempts - messages may be lost",
-						workerID)
-				}
-			} else {
-				b.log.Info("Flush worker %d retry successful on attempt %d",
-					workerID, attempt)
-				b.mu.Lock()
-				b.lastFlushError = nil
-				b.mu.Unlock()
-				return
-			}
-		case <-b.ctx.Done():
-			b.log.Warn("Flush worker %d retry cancelled - context done", workerID)
-			return
-		}
+	err := RetryFlush(
+		b.ctx,
+		b.log,
+		3,
+		100*time.Millisecond,
+		workerID,
+		b.flush,
+	)
+	if err != nil {
+		b.log.Error("Failed to retry flush: %v", err)
+		return
+	} else {
+		b.log.Info("Retry flush successful")
+		b.mu.Lock()
+		b.lastFlushError = nil
+		b.mu.Unlock()
+		return
 	}
 }
 

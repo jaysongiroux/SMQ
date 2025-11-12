@@ -67,9 +67,14 @@ func (h *Handler) CreateMessage(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.log.Warn("Failed to read request body: %v", err)
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
+		err := json.NewEncoder(w).Encode(map[string]string{
 			"error": "Failed to read request body",
 		})
+		if err != nil {
+			h.log.Error("Failed to encode response: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		return
 	}
 
@@ -77,9 +82,14 @@ func (h *Handler) CreateMessage(w http.ResponseWriter, r *http.Request) {
 	if err := json.Unmarshal(body, &req); err != nil {
 		h.log.Warn("Failed to parse request body: %v", err)
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
+		err := json.NewEncoder(w).Encode(map[string]string{
 			"error": "Invalid JSON format",
 		})
+		if err != nil {
+			h.log.Error("Failed to encode response: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		return
 	}
 
@@ -87,19 +97,29 @@ func (h *Handler) CreateMessage(w http.ResponseWriter, r *http.Request) {
 	messageID, err := h.producer.CreateMessage(ctx, &req)
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
+		err := json.NewEncoder(w).Encode(map[string]string{
 			"error": err.Error(),
 		})
+		if err != nil {
+			h.log.Error("Failed to encode response: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		return
 	}
 
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	err = json.NewEncoder(w).Encode(map[string]interface{}{
 		"message_id":   messageID,
 		"channel":      req.Channel,
 		"scheduled_at": req.ScheduledAt.Unix(),
 		"created_at":   time.Now().Unix(),
 	})
+	if err != nil {
+		h.log.Error("Failed to encode response: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 }
 
 func (h *Handler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
@@ -111,9 +131,14 @@ func (h *Handler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.log.Warn("Invalid UUID format: %s", idStr)
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
+		err := json.NewEncoder(w).Encode(map[string]string{
 			"error": "Invalid message ID format - must be a valid UUID",
 		})
+		if err != nil {
+			h.log.Error("Failed to encode response: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		return
 	}
 
@@ -121,24 +146,39 @@ func (h *Handler) DeleteMessage(w http.ResponseWriter, r *http.Request) {
 	if err := h.producer.DeleteMessage(ctx, messageID); err != nil {
 		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "no rows") {
 			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(map[string]string{
+			err := json.NewEncoder(w).Encode(map[string]string{
 				"error": "Message not found",
 			})
+			if err != nil {
+				h.log.Error("Failed to encode response: %v", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
 			return
 		}
 
 		// Other errors
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{
+		err := json.NewEncoder(w).Encode(map[string]string{
 			"error": "Failed to delete message",
 		})
+		if err != nil {
+			h.log.Error("Failed to encode response: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		return
 	}
 
 	// Return success response
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	err = json.NewEncoder(w).Encode(map[string]interface{}{
 		"message_id": messageID,
 		"deleted_at": time.Now().Unix(),
 	})
+	if err != nil {
+		h.log.Error("Failed to encode response: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 }

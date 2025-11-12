@@ -43,7 +43,10 @@ func AuthMiddleware(apiKey string, log *logger.Logger) func(http.Handler) http.H
 				log.Warn("Request rejected: missing api-key header from %s", r.RemoteAddr)
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
-				w.Write([]byte(`{"error":"missing api-key header"}`))
+				_, err := w.Write([]byte(`{"error":"missing api-key header"}`))
+				if err != nil {
+					log.Error("Failed to write response: %v", err)
+				}
 				return
 			}
 
@@ -51,7 +54,10 @@ func AuthMiddleware(apiKey string, log *logger.Logger) func(http.Handler) http.H
 				log.Warn("Request rejected: invalid api-key from %s", r.RemoteAddr)
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusUnauthorized)
-				w.Write([]byte(`{"error":"invalid api-key"}`))
+				_, err := w.Write([]byte(`{"error":"invalid api-key"}`))
+				if err != nil {
+					log.Error("Failed to write response: %v", err)
+				}
 				return
 			}
 

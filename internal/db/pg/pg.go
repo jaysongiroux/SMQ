@@ -57,7 +57,12 @@ func ListNodes(ctx context.Context, limit int, offset int, log *logger.Logger, d
 		log.Error("Failed to list nodes: %v", err)
 		return nil, fmt.Errorf("failed to list nodes: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		err = rows.Close()
+		if err != nil {
+			log.Error("Failed to close rows: %v", err)
+		}
+	}()
 
 	var nodes []*models.Node
 	for rows.Next() {
@@ -220,7 +225,12 @@ func ListChannels(ctx context.Context, limit int, offset int, log *logger.Logger
 		log.Error("Failed to list channels: %v", err)
 		return nil, fmt.Errorf("failed to list channels: %w", err)
 	}
-	defer rows.Close()
+	defer func() {
+		err = rows.Close()
+		if err != nil {
+			log.Error("Failed to close rows: %v", err)
+		}
+	}()
 
 	var channels []*models.Channel
 	for rows.Next() {
@@ -327,7 +337,12 @@ func BatchCreateMessages(ctx context.Context, msgs []*models.Message, log *logge
 		log.Error("Failed to begin transaction for batch insert: %v", err)
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		err = tx.Rollback()
+		if err != nil {
+			log.Error("Failed to rollback transaction: %v", err)
+		}
+	}()
 
 	query := `
 		INSERT INTO messages (id, channel, payload, scheduled_at, status, retry_count, created_at)
@@ -339,7 +354,12 @@ func BatchCreateMessages(ctx context.Context, msgs []*models.Message, log *logge
 		log.Error("Failed to prepare statement for batch insert: %v", err)
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
-	defer stmt.Close()
+	defer func() {
+		err = stmt.Close()
+		if err != nil {
+			log.Error("Failed to close statement: %v", err)
+		}
+	}()
 
 	// Insert each message using the prepared statement
 	for _, msg := range msgs {

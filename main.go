@@ -53,7 +53,12 @@ func main() {
 	if err != nil {
 		log.Fatal("Failed to initialize database: %v", err)
 	}
-	defer store.Close()
+	defer func() {
+		err = store.Close()
+		if err != nil {
+			log.Error("Failed to close database: %v", err)
+		}
+	}()
 	log.Info("Database connection established")
 
 	// Register this node in the database (upsert)
@@ -78,7 +83,12 @@ func main() {
 		log.Fatal("Failed to initialize buffer: %v", err)
 	}
 	messageBuffer.Start()
-	defer messageBuffer.Stop()
+	defer func() {
+		err = messageBuffer.Stop()
+		if err != nil {
+			log.Error("Failed to stop buffer: %v", err)
+		}
+	}()
 
 	// Initialize scheduler for background processing
 	schedulerConfig := &scheduler.SchedulerConfig{
@@ -92,7 +102,12 @@ func main() {
 	schedulerLog := log.WithService("scheduler")
 	msgScheduler := scheduler.NewScheduler(schedulerConfig, store, cfg.NumSchedulerNodes, cfg.NumSchedulerJanitorNodes, schedulerLog)
 	msgScheduler.Start()
-	defer msgScheduler.Stop()
+	defer func() {
+		err = msgScheduler.Stop()
+		if err != nil {
+			log.Error("Failed to stop scheduler: %v", err)
+		}
+	}()
 	log.Info("Scheduler layer initialized with %d scheduler nodes and %d janitor nodes", cfg.NumSchedulerNodes, cfg.NumSchedulerJanitorNodes)
 
 	// Initialize producer layer
@@ -101,7 +116,12 @@ func main() {
 	if err := prod.Start(); err != nil {
 		log.Fatal("Failed to start producer: %v", err)
 	}
-	defer prod.Stop()
+	defer func() {
+		err = prod.Stop()
+		if err != nil {
+			log.Error("Failed to stop producer: %v", err)
+		}
+	}()
 	log.Info("Producer layer initialized")
 
 	// Initialize consumer layer
@@ -110,7 +130,12 @@ func main() {
 	if err := cons.Start(); err != nil {
 		log.Fatal("Failed to start consumer: %v", err)
 	}
-	defer cons.Stop()
+	defer func() {
+		err = cons.Stop()
+		if err != nil {
+			log.Error("Failed to stop consumer: %v", err)
+		}
+	}()
 	log.Info("Consumer layer initialized")
 
 	// Initialize health checker with check interval
@@ -132,7 +157,12 @@ func main() {
 	if err := healthChecker.Start(); err != nil {
 		log.Fatal("Failed to start health checker: %v", err)
 	}
-	defer healthChecker.Stop()
+	defer func() {
+		err = healthChecker.Stop()
+		if err != nil {
+			log.Error("Failed to stop health checker: %v", err)
+		}
+	}()
 	log.Info("Health checker initialized")
 
 	// Get API key for auth middleware

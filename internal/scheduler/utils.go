@@ -1,7 +1,7 @@
 package scheduler
 
 import (
-	"math/rand"
+	"math/rand/v2"
 	"time"
 )
 
@@ -11,7 +11,7 @@ func applyJitter(duration time.Duration, jitterPercent int) time.Duration {
 	}
 
 	jitterAmount := float64(duration) * float64(jitterPercent) / 100.0
-	randomJitter := (rand.Float64()*2 - 1) * jitterAmount
+	randomJitter := (rand.Float64()*2 - 1) * jitterAmount // #nosec G404 -- timing jitter doesn't require cryptographic randomness
 
 	result := duration + time.Duration(randomJitter)
 

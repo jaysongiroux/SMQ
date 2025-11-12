@@ -24,6 +24,18 @@ const (
 	MaxBatchSize = 1000
 )
 
+type NackAckRequest struct {
+	MessageIDs []string `json:"message_id"`
+}
+
+// nack or ack
+type NackAckPurpose string
+
+const (
+	NackAckPurposeNack NackAckPurpose = "nack"
+	NackAckPurposeAck  NackAckPurpose = "ack"
+)
+
 // AckRequest represents the request body for acknowledging messages
 type AckRequest struct {
 	MessageIDs []string `json:"message_ids"`
@@ -99,7 +111,7 @@ func (h *Handler) handleAck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.AckMessage(w, r)
+	h.NackAckMessage(w, r, NackAckPurposeAck)
 }
 
 // handleNack routes /v1/messages/nack requests
@@ -114,7 +126,7 @@ func (h *Handler) handleNack(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.NackMessage(w, r)
+	h.NackAckMessage(w, r, NackAckPurposeNack)
 }
 
 // ListChannels handles GET /v1/channels?limit=10&offset=0
@@ -136,9 +148,14 @@ func (h *Handler) ListChannels(w http.ResponseWriter, r *http.Request) {
 		if err != nil || parsed < 1 {
 			h.log.Warn("Invalid limit parameter: %s", limitStr)
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
+			err := json.NewEncoder(w).Encode(map[string]string{
 				"error": "Invalid limit parameter - must be a positive integer",
 			})
+			if err != nil {
+				h.log.Error("Failed to encode response: %v", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
 			return
 		}
 		limit = parsed
@@ -150,9 +167,14 @@ func (h *Handler) ListChannels(w http.ResponseWriter, r *http.Request) {
 		if err != nil || parsed < 0 {
 			h.log.Warn("Invalid offset parameter: %s", offsetStr)
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
+			err := json.NewEncoder(w).Encode(map[string]string{
 				"error": "Invalid offset parameter - must be a non-negative integer",
 			})
+			if err != nil {
+				h.log.Error("Failed to encode response: %v", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
 			return
 		}
 		offset = parsed
@@ -164,9 +186,14 @@ func (h *Handler) ListChannels(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		h.log.Error("Failed to list channels: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{
+		err := json.NewEncoder(w).Encode(map[string]string{
 			"error": "Failed to retrieve channels",
 		})
+		if err != nil {
+			h.log.Error("Failed to encode response: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		return
 	}
 
@@ -178,7 +205,7 @@ func (h *Handler) ListChannels(w http.ResponseWriter, r *http.Request) {
 
 	// Return success response with pagination metadata
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	err = json.NewEncoder(w).Encode(map[string]interface{}{
 		"channels": channelNames,
 		"pagination": map[string]int{
 			"limit":  limit,
@@ -186,6 +213,11 @@ func (h *Handler) ListChannels(w http.ResponseWriter, r *http.Request) {
 			"count":  len(channelNames),
 		},
 	})
+	if err != nil {
+		h.log.Error("Failed to encode response: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 }
 
 // PollMessages handles GET /v1/channels/:channelId/poll?max=1000&subsidize=false
@@ -203,9 +235,13 @@ func (h *Handler) PollMessages(w http.ResponseWriter, r *http.Request) {
 	if channelID == "" {
 		h.log.Warn("Poll request missing channel ID")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
+		err := json.NewEncoder(w).Encode(map[string]string{
 			"error": "Channel ID is required",
 		})
+		if err != nil {
+			h.log.Error("Failed to encode response: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+		}
 		return
 	}
 
@@ -217,9 +253,13 @@ func (h *Handler) PollMessages(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			h.log.Warn("Invalid max parameter: %s", maxStr)
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
+			err := json.NewEncoder(w).Encode(map[string]string{
 				"error": "Invalid max parameter - must be an integer",
 			})
+			if err != nil {
+				h.log.Error("Failed to encode response: %v", err)
+				w.WriteHeader(http.StatusInternalServerError)
+			}
 			return
 		}
 
@@ -227,9 +267,13 @@ func (h *Handler) PollMessages(w http.ResponseWriter, r *http.Request) {
 		if err := config.ValidateRange("max", parsed, MinMaxMessages, MaxMaxMessages); err != nil {
 			h.log.Warn("Invalid max parameter: %s", maxStr)
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
+			err := json.NewEncoder(w).Encode(map[string]string{
 				"error": "Invalid max parameter - must be between " + strconv.Itoa(MinMaxMessages) + " and " + strconv.Itoa(MaxMaxMessages),
 			})
+			if err != nil {
+				h.log.Error("Failed to encode response: %v", err)
+				w.WriteHeader(http.StatusInternalServerError)
+			}
 			return
 		}
 
@@ -244,9 +288,14 @@ func (h *Handler) PollMessages(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			h.log.Warn("Invalid subsidize parameter: %s", subsidizeStr)
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
+			err := json.NewEncoder(w).Encode(map[string]string{
 				"error": "Invalid subsidize parameter - must be true or false",
 			})
+			if err != nil {
+				h.log.Error("Failed to encode response: %v", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
 			return
 		}
 		subsidize = parsed
@@ -259,15 +308,20 @@ func (h *Handler) PollMessages(w http.ResponseWriter, r *http.Request) {
 		// print the messages
 
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{
+		err := json.NewEncoder(w).Encode(map[string]string{
 			"error": "Failed to poll messages",
 		})
+		if err != nil {
+			h.log.Error("Failed to encode response: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		return
 	}
 
 	// Return messages
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	err = json.NewEncoder(w).Encode(map[string]interface{}{
 		"messages": func() interface{} {
 			if messages == nil {
 				return []interface{}{}
@@ -275,39 +329,59 @@ func (h *Handler) PollMessages(w http.ResponseWriter, r *http.Request) {
 			return messages
 		}(),
 	})
+	if err != nil {
+		h.log.Error("Failed to encode response: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 }
 
-// AckMessage handles POST /v1/messages/ack
-// Confirms successful message processing and permanently deletes the message
-func (h *Handler) AckMessage(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) NackAckMessage(w http.ResponseWriter, r *http.Request, purpose NackAckPurpose) {
 	w.Header().Set("Content-Type", "application/json")
 
 	// Parse request body
-	var req AckRequest
+	var req NackAckRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.log.Warn("Invalid ack request body: %v", err)
+		h.log.Warn("Invalid nack/ack request body: %v", err)
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "Invalid request body - must be valid JSON",
+		err := json.NewEncoder(w).Encode(map[string]string{
+			"error": "Invalid nack/ack request body - must be valid JSON",
 		})
+		if err != nil {
+			h.log.Error("Failed to encode response: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		return
 	}
 
 	// Validate message IDs count
 	if len(req.MessageIDs) < MinBatchSize {
-		h.log.Warn("Ack request with too few message IDs: %d", len(req.MessageIDs))
+		h.log.Warn("Nack/Ack request with too few message IDs: %d", len(req.MessageIDs))
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "At least 1 message ID is required",
+		err := json.NewEncoder(w).Encode(map[string]string{
+			"error": "At least 1 message ID is required for nack/ack",
 		})
+		if err != nil {
+			h.log.Error("Failed to encode response: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		return
 	}
+
+	// validate max batch size
 	if len(req.MessageIDs) > MaxBatchSize {
-		h.log.Warn("Ack request with too many message IDs: %d (max: %d)", len(req.MessageIDs), MaxBatchSize)
+		h.log.Warn("Nack/Ack request with too many message IDs: %d (max: %d)", len(req.MessageIDs), MaxBatchSize)
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
+		err := json.NewEncoder(w).Encode(map[string]string{
 			"error": "Cannot ack more than 1000 messages at once",
 		})
+		if err != nil {
+			h.log.Error("Failed to encode response: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		return
 	}
 
@@ -318,99 +392,64 @@ func (h *Handler) AckMessage(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			h.log.Warn("Invalid message ID in ack request: %s", idStr)
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
+			err := json.NewEncoder(w).Encode(map[string]string{
 				"error": "Invalid message ID format: " + idStr,
 			})
+			if err != nil {
+				h.log.Error("Failed to encode response: %v", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
 			return
 		}
 		messageIDs = append(messageIDs, id)
 	}
 
-	// Ack messages
 	ctx := r.Context()
-	err := h.consumer.AckMessage(ctx, messageIDs)
-	if err != nil {
-		h.log.Error("Failed to ack messages: %v", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "Failed to acknowledge messages",
-		})
-		return
-	}
-
-	// Return success
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"count":   len(messageIDs),
-	})
-}
-
-// NackMessage handles POST /v1/messages/nack
-// Indicates processing failure, marks message for retry or moves to DLQ
-func (h *Handler) NackMessage(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	// Parse request body
-	var req NackRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		h.log.Warn("Invalid nack request body: %v", err)
+	var err error
+	switch purpose {
+	case NackAckPurposeNack:
+		err = h.consumer.NackMessage(ctx, messageIDs)
+	case NackAckPurposeAck:
+		err = h.consumer.AckMessage(ctx, messageIDs)
+	default:
+		h.log.Warn("Invalid nack/ack purpose: %s", purpose)
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "Invalid request body - must be valid JSON",
+		err := json.NewEncoder(w).Encode(map[string]string{
+			"error": "Invalid nack/ack purpose - must be nack or ack",
 		})
-		return
-	}
-
-	// Validate message IDs count
-	if len(req.MessageIDs) < MinBatchSize {
-		h.log.Warn("Nack request with too few message IDs: %d", len(req.MessageIDs))
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "At least 1 message ID is required",
-		})
-		return
-	}
-	if len(req.MessageIDs) > MaxBatchSize {
-		h.log.Warn("Nack request with too many message IDs: %d (max: %d)", len(req.MessageIDs), MaxBatchSize)
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "Cannot nack more than 1000 messages at once",
-		})
-		return
-	}
-
-	// Parse UUIDs
-	messageIDs := make([]uuid.UUID, 0, len(req.MessageIDs))
-	for _, idStr := range req.MessageIDs {
-		id, err := uuid.Parse(idStr)
 		if err != nil {
-			h.log.Warn("Invalid message ID in nack request: %s", idStr)
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "Invalid message ID format: " + idStr,
-			})
+			h.log.Error("Failed to encode response: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		messageIDs = append(messageIDs, id)
+		return
 	}
 
-	// Nack messages
-	ctx := r.Context()
-	err := h.consumer.NackMessage(ctx, messageIDs)
 	if err != nil {
-		h.log.Error("Failed to nack messages: %v", err)
+		h.log.Error("Failed to nack/ack messages: %v", err)
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "Failed to nack messages",
+		err := json.NewEncoder(w).Encode(map[string]string{
+			"error": "Failed to nack/ack messages",
 		})
+		if err != nil {
+			h.log.Error("Failed to encode response: %v", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		return
 	}
 
 	// Return success
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	err = json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
 		"count":   len(messageIDs),
 	})
+
+	if err != nil {
+		h.log.Error("Failed to encode response: %v", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 }

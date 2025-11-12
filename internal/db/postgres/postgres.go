@@ -151,7 +151,12 @@ func (s *PostgresStore) AcquireNextMessage(ctx context.Context, channel string, 
 		s.log.Error("Failed to begin transaction for AcquireNextMessage: %v", err)
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback() // Rollback if not committed
+	defer func() {
+		err = tx.Rollback()
+		if err != nil {
+			s.log.Error("Failed to rollback transaction: %v", err)
+		}
+	}()
 
 	// This single query finds, locks, updates, and returns the messages.
 	// 1. CTE `locked_messages`: Finds and locks the rows using FOR UPDATE SKIP LOCKED.
@@ -183,7 +188,12 @@ func (s *PostgresStore) AcquireNextMessage(ctx context.Context, channel string, 
 		s.log.Error("Failed to atomically acquire messages for channel %s: %v", channel, err)
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		err = rows.Close()
+		if err != nil {
+			s.log.Error("Failed to close rows: %v", err)
+		}
+	}()
 
 	var messages []*models.Message
 

@@ -1,0 +1,26 @@
+version: 2
+
+run:
+  timeout: 5m
+  go: '1.23'
+  skip-files:
+    - ".*_test\\.go$"
+
+linters:
+  exclusions:
+    rules:
+      - path: (.+)_test.go
+        linters:
+          - errcheck
+          - gosec
+
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - ineffassign
+    - unused
+    - dupl
+    - errorlint
+    - iface
+    - gosec

@@ -1,0 +1,81 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  release:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Verify CI passed
+        run: |
+          # Get the status of the CI workflow for the current commit
+          STATUS=$(gh run list --workflow=ci.yml --branch=${{ github.ref_name }} --limit 1 --json conclusion --jq '.[0].conclusion')
+          if [ "$STATUS" != "success" ]; then
+            echo "Error: CI workflow has not passed for this commit"
+            echo "Current CI status: $STATUS"
+            exit 1
+          fi
+          echo "✓ CI workflow passed"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build for Linux
+        run: |
+          GOOS=linux GOARCH=amd64 go build -o bin/smq-linux-amd64 -ldflags="-s -w -X main.version=${{ github.event.inputs.version }}" .
+          GOOS=linux GOARCH=arm64 go build -o bin/smq-linux-arm64 -ldflags="-s -w -X main.version=${{ github.event.inputs.version }}" .
+
+      - name: Build for macOS
+        run: |
+          GOOS=darwin GOARCH=amd64 go build -o bin/smq-darwin-amd64 -ldflags="-s -w -X main.version=${{ github.event.inputs.version }}" .
+          GOOS=darwin GOARCH=arm64 go build -o bin/smq-darwin-arm64 -ldflags="-s -w -X main.version=${{ github.event.inputs.version }}" .
+
+      - name: Build for Windows
+        run: |
+          GOOS=windows GOARCH=amd64 go build -o bin/smq-windows-amd64.exe -ldflags="-s -w -X main.version=${{ github.event.inputs.version }}" .
+
+      - name: Create checksums
+        run: |
+          cd bin
+          sha256sum * > checksums.txt
+          cat checksums.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          name: Release ${{ github.event.inputs.version }}
+          draft: false
+          prerelease: false
+          files: |
+            bin/smq-*
+            bin/checksums.txt
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
