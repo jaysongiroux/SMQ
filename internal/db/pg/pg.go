@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jaysongiroux/smq/internal/config"
 	"github.com/jaysongiroux/smq/internal/logger"
 	"github.com/jaysongiroux/smq/internal/models"
 	"github.com/jmoiron/sqlx"
@@ -368,10 +370,143 @@ func Migrate(log *logger.Logger, db *sqlx.DB, schema string) error {
 	return nil
 }
 
-func BatchCreateMessages(ctx context.Context, msgs []*models.Message, log *logger.Logger, db *sqlx.DB) error {
+const (
+	// PostgreSQL has a limit of 65535 parameters per query
+	// With 7 columns per message, max ~9000 messages per query
+	maxParamsPerQuery = 65535
+
+	// Number of fields in the message table
+	paramsPerMessage    = 7
+	maxMessagesPerQuery = maxParamsPerQuery / paramsPerMessage
+
+	// Use COPY for very large batches
+	copyThreshold = 5000
+)
+
+// BatchCreateMessages inserts multiple messages using PostgreSQL COPY protocol
+func BatchCreateMessages(
+	ctx context.Context,
+	msgs []*models.Message,
+	log *logger.Logger,
+	db *sqlx.DB,
+	connector config.DatabaseConnector,
+) error {
 	if len(msgs) == 0 {
 		return nil
 	}
+
+	switch connector {
+	case config.DatabaseConnectorPostgresql:
+		return BatchCreateMessagesCopy(ctx, msgs, log, db)
+	case config.DatabaseConnectorCockroachdb:
+		return BatchCreateMessagesInsert(ctx, msgs, log, db)
+	default:
+		return fmt.Errorf("unsupported database connector: %s", connector)
+	}
+}
+
+func BatchCreateMessagesInsert(
+	ctx context.Context,
+	msgs []*models.Message,
+	log *logger.Logger,
+	db *sqlx.DB,
+) error {
+	tx, err := db.BeginTxx(ctx, nil)
+	if err != nil {
+		log.Error("Failed to begin transaction: %v", err)
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			log.Error("Failed to rollback transaction: %v", err)
+		}
+	}()
+
+	// Process messages in chunks to avoid parameter limit
+	totalChunks := (len(msgs) + maxMessagesPerQuery - 1) / maxMessagesPerQuery
+
+	for i := 0; i < len(msgs); i += maxMessagesPerQuery {
+		end := i + maxMessagesPerQuery
+		if end > len(msgs) {
+			end = len(msgs)
+		}
+		chunk := msgs[i:end]
+		chunkNum := (i / maxMessagesPerQuery) + 1
+
+		log.Debug("Inserting chunk %d/%d with %d messages", chunkNum, totalChunks, len(chunk))
+
+		if err := insertChunk(ctx, tx, chunk, log); err != nil {
+			return err
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Error("Failed to commit transaction: %v", err)
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	log.Debug("Successfully bulk inserted %d messages using multi-value INSERT", len(msgs))
+	return nil
+}
+
+// insertChunk inserts a chunk of messages using multi-row VALUES
+func insertChunk(ctx context.Context, tx *sqlx.Tx, msgs []*models.Message, log *logger.Logger) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+
+	// Build the query: INSERT INTO messages (...) VALUES ($1,$2,...), ($8,$9,...), ...
+	var queryBuilder strings.Builder
+	queryBuilder.WriteString(`
+		INSERT INTO messages (id, channel, payload, scheduled_at, status, retry_count, created_at)
+		VALUES 
+	`)
+
+	args := make([]interface{}, 0, len(msgs)*paramsPerMessage)
+
+	for i, msg := range msgs {
+		if i > 0 {
+			queryBuilder.WriteString(", ")
+		}
+
+		// Calculate parameter positions for this message
+		baseParam := i * paramsPerMessage
+		queryBuilder.WriteString(fmt.Sprintf(
+			"($%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+			baseParam+1, baseParam+2, baseParam+3, baseParam+4,
+			baseParam+5, baseParam+6, baseParam+7,
+		))
+
+		// Add message values to args
+		args = append(args,
+			msg.ID,
+			msg.Channel,
+			string(msg.Payload), // Convert json.RawMessage to string
+			msg.ScheduledAt,
+			msg.Status,
+			msg.RetryCount,
+			msg.CreatedAt,
+		)
+	}
+
+	query := queryBuilder.String()
+
+	// Execute the multi-row insert
+	_, err := tx.ExecContext(ctx, query, args...)
+	if err != nil {
+		log.Error("Failed to insert chunk of %d messages: %v", len(msgs), err)
+		return fmt.Errorf("failed to insert chunk: %w", err)
+	}
+
+	return nil
+}
+
+func BatchCreateMessagesCopy(
+	ctx context.Context,
+	msgs []*models.Message,
+	log *logger.Logger,
+	db *sqlx.DB,
+) error {
 
 	// Start transaction
 	tx, err := db.BeginTxx(ctx, nil)
@@ -385,39 +520,44 @@ func BatchCreateMessages(ctx context.Context, msgs []*models.Message, log *logge
 		}
 	}()
 
-	query := `
-		INSERT INTO messages (id, channel, payload, scheduled_at, status, retry_count, created_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`
-
-	stmt, err := tx.PreparexContext(ctx, query)
+	stmt, err := tx.PrepareContext(ctx, pq.CopyIn(
+		"messages",
+		"id",
+		"channel",
+		"payload",
+		"scheduled_at",
+		"status",
+		"retry_count",
+		"created_at",
+	))
 	if err != nil {
-		log.Error("Failed to prepare statement for batch insert: %v", err)
-		return fmt.Errorf("failed to prepare statement: %w", err)
+		log.Error("Failed to prepare COPY statement: %v", err)
+		return fmt.Errorf("failed to prepare COPY statement: %w", err)
 	}
-	defer func() {
-		err = stmt.Close()
-		if err != nil {
-			log.Error("Failed to close statement: %v", err)
-		}
-	}()
 
-	// Insert each message using the prepared statement
+	// Feed messages into COPY
 	for _, msg := range msgs {
-		_, err := stmt.ExecContext(
+		_, err = stmt.ExecContext(
 			ctx,
 			msg.ID,
 			msg.Channel,
-			msg.Payload,
+			string(msg.Payload),
 			msg.ScheduledAt,
 			msg.Status,
 			msg.RetryCount,
 			msg.CreatedAt,
 		)
 		if err != nil {
-			log.Error("Failed to insert message %s in batch: %v", msg.ID, err)
-			return fmt.Errorf("failed to insert message: %w", err)
+			log.Error("Failed to add message %s to COPY batch: %v", msg.ID, err)
+			stmt.Close()
+			return fmt.Errorf("failed to add message to COPY: %w", err)
 		}
+	}
+
+	// Execute the COPY (this is where the actual bulk insert happens)
+	if err := stmt.Close(); err != nil {
+		log.Error("Failed to execute COPY for %d messages: %v", len(msgs), err)
+		return fmt.Errorf("failed to execute COPY: %w", err)
 	}
 
 	// Commit transaction
@@ -426,6 +566,7 @@ func BatchCreateMessages(ctx context.Context, msgs []*models.Message, log *logge
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
+	log.Debug("Successfully inserted %d messages using COPY", len(msgs))
 	return nil
 }
 

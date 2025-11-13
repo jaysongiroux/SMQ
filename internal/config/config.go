@@ -140,6 +140,13 @@ const (
 	BufferTypeDisk   = "disk"
 )
 
+type DatabaseConnector string
+
+const (
+	DatabaseConnectorPostgresql  DatabaseConnector = "postgres"
+	DatabaseConnectorCockroachdb DatabaseConnector = "cockroach"
+)
+
 // JSONConfig represents the structure of config.json
 type JSONConfig struct {
 	NumSchedulerNodes             int    `json:"num_scheduler_nodes"`

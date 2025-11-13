@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jaysongiroux/smq/internal/config"
 	"github.com/jaysongiroux/smq/internal/db"
 	"github.com/jaysongiroux/smq/internal/db/pg"
 	"github.com/jaysongiroux/smq/internal/logger"
@@ -55,7 +56,7 @@ func (s *PostgresStore) migrate() error {
 
 // BatchCreateMessages inserts multiple messages in a single transaction
 func (s *PostgresStore) BatchCreateMessages(ctx context.Context, msgs []*models.Message) error {
-	return pg.BatchCreateMessages(ctx, msgs, s.log, s.db)
+	return pg.BatchCreateMessages(ctx, msgs, s.log, s.db, config.DatabaseConnectorPostgresql)
 }
 
 // DeleteMessage removes a message from the database

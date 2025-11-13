@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/jaysongiroux/smq/internal/config"
 	"github.com/jaysongiroux/smq/internal/db"
 	"github.com/jaysongiroux/smq/internal/db/pg"
 	"github.com/jaysongiroux/smq/internal/logger"
@@ -65,7 +66,7 @@ func (s *CockroachStore) migrate() error {
 
 // BatchCreateMessages inserts multiple messages in a single transaction
 func (s *CockroachStore) BatchCreateMessages(ctx context.Context, msgs []*models.Message) error {
-	return pg.BatchCreateMessages(ctx, msgs, s.log, s.db)
+	return pg.BatchCreateMessages(ctx, msgs, s.log, s.db, config.DatabaseConnectorCockroachdb)
 }
 
 // DeleteMessage removes a message from the database

@@ -19,7 +19,7 @@
   "buffer_flush_interval_ms": 5000,
   "min_scheduled_at_future_ms": 5000,
   "janitor_delete_failed_messages": true,
-  "buffer_type": "disk",
+  "buffer_type": "memory",
   "datastore": "postgres",
   "buffer_wal_path": "./smq_wal.log",
   "multi_region_supplement": false,

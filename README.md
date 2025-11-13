@@ -24,7 +24,7 @@ graph TB
         subgraph "Background Processes"
             S[Scheduler Process<br/>Marks messages as 'ready'<br/><i>Multiple Instances</i>]
             J[Janitor Process<br/>Handles stale messages<br/><i>Multiple Instances</i>]
-            B[Buffer Workers<br/>Memory or disk/WAL<br/>Batch write to DB<br/>Adaptive Flushing<br/><i>Multiple Workers</i>]
+            B[Buffer Workers<br/>Memory or disk/WAL<br/>Batch write to DB<br/>Adaptive Flushing<br/>]
         end
 
         subgraph "Health Service"
