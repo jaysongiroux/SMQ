@@ -35,6 +35,13 @@ func ValidateMinValue(name string, value, minValue int) error {
 	return nil
 }
 
+func ValidateMaxValue(name string, value, maxValue int) error {
+	if value > maxValue {
+		return fmt.Errorf("%s must be less than %d (got %d)", name, maxValue, value)
+	}
+	return nil
+}
+
 func ValidateRange(name string, value, min, max int) error {
 	if value < min || value > max {
 		return fmt.Errorf("%s must be between %d and %d (got %d)", name, min, max, value)

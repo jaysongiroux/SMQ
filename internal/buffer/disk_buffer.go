@@ -34,32 +34,40 @@ type DiskBuffer struct {
 	isRunning      bool
 	log            *logger.Logger
 
+	// Adaptive tuning fields
+	adaptiveEnabled       bool
+	adaptiveMaxSize       int          // Current adaptive max size (if adaptive enabled)
+	adaptiveFlushTicker   *time.Ticker // Ticker that can be reset for adaptive intervals
+	adaptiveTuneThreshold int          // Number of flushes to tune adaptive flushing
+	adaptiveMinSize       int          // Adaptive min size (if adaptive enabled)
+
 	// Metrics
 	totalFlushed     int64
 	totalFlushErrors int64
 	messagesDropped  int64
 	avgFlushDuration time.Duration
 	walSize          int64
+	flushCount       int64 // Track number of flushes for adaptive tuning
 }
-
-const (
-	maxWalSize = 100 * 1024 * 1024 // 100MB
-)
 
 // NewDiskBuffer creates a new disk-backed buffer instance
 func NewDiskBuffer(config *Config, store db.Store, log *logger.Logger) (*DiskBuffer, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	b := &DiskBuffer{
-		config:    config,
-		store:     store,
-		log:       log,
-		walPath:   config.WALPath,
-		flushChan: make(chan struct{}, 1),
-		ctx:       ctx,
-		cancel:    cancel,
-		batch:     make([]*models.Message, 0, config.MaxSize),
-		lastFlush: time.Now(),
+		config:                config,
+		store:                 store,
+		log:                   log,
+		walPath:               config.WALPath,
+		flushChan:             make(chan struct{}, 1),
+		ctx:                   ctx,
+		cancel:                cancel,
+		batch:                 make([]*models.Message, 0, config.MaxSize),
+		lastFlush:             time.Now(),
+		adaptiveEnabled:       config.Adaptive,
+		adaptiveMaxSize:       config.AdaptiveMaxSize,
+		adaptiveTuneThreshold: config.AdaptiveTuneThreshold,
+		adaptiveMinSize:       config.AdaptiveMinSize,
 	}
 
 	// Open or create WAL file
@@ -97,7 +105,8 @@ func NewDiskBuffer(config *Config, store db.Store, log *logger.Logger) (*DiskBuf
 	}
 	b.walSize = stat.Size()
 
-	log.Info("Opened disk buffer WAL file at %s (current size: %d bytes)", b.walPath, b.walSize)
+	log.Info("Opened disk buffer WAL file at %s (current size: %d bytes, adaptive: %v)",
+		b.walPath, b.walSize, config.Adaptive)
 
 	// Recover any messages from WAL on startup
 	if err := b.recoverFromWAL(); err != nil {
@@ -120,8 +129,12 @@ func (b *DiskBuffer) Start() {
 	b.isRunning = true
 	b.mu.Unlock()
 
-	b.log.Info("Starting disk buffer with config: max_size=%d, flush_interval=%v, worker_count=%d, wal_path=%s",
-		b.config.MaxSize, b.config.FlushInterval, b.config.WorkerCount, b.walPath)
+	adaptiveStr := "disabled"
+	if b.config.Adaptive {
+		adaptiveStr = "enabled"
+	}
+	b.log.Info("Starting disk buffer with config: max_size=%d, flush_interval=%v, worker_count=%d, wal_path=%s, adaptive=%s",
+		b.config.MaxSize, b.config.FlushInterval, b.config.WorkerCount, b.walPath, adaptiveStr)
 
 	// Start flush workers
 	for i := 0; i < b.config.WorkerCount; i++ {
@@ -132,7 +145,16 @@ func (b *DiskBuffer) Start() {
 
 	// Start the flush ticker
 	b.wg.Add(1)
-	go b.flushTicker()
+	go FlushTicker(&GenericBuffer{
+		mu:                  &b.mu,
+		wg:                  &b.wg,
+		adaptiveFlushTicker: &b.adaptiveFlushTicker,
+		batch:               &b.batch,
+		lastFlush:           &b.lastFlush,
+		triggerFlush:        b.triggerFlush,
+		ctx:                 b.ctx,
+	}, b.config.FlushInterval, b.adaptiveEnabled, b.log)
+
 	b.log.Debug("Started flush ticker")
 
 	b.log.Info("Disk buffer started successfully")
@@ -185,19 +207,24 @@ func (b *DiskBuffer) Health() *models.ComponentHealth {
 	currentBatchSize := len(b.batch)
 	timeSinceLastFlush := time.Since(b.lastFlush)
 
+	currentMaxSize := b.config.MaxSize
+	if !b.config.Adaptive {
+		currentMaxSize = b.config.MaxSize
+	}
+
 	if !b.isRunning {
 		status = models.HealthStatusUnhealthy
 		message = "Disk buffer is not running - system shutting down or not started"
 	} else if b.lastFlushError != nil {
 		status = models.HealthStatusUnhealthy
 		message = "Last flush failed: " + b.lastFlushError.Error() + " - messages persisted in WAL"
-	} else if currentBatchSize >= b.config.MaxSize {
+	} else if currentBatchSize >= currentMaxSize {
 		status = models.HealthStatusDegraded
 		message = "Disk buffer is full - batch size reached maximum capacity. Flush may be blocked or slow."
 	} else if currentBatchSize > 0 && timeSinceLastFlush > b.config.FlushInterval*2 {
 		status = models.HealthStatusDegraded
 		message = "Disk buffer flush is delayed - last flush was " + timeSinceLastFlush.String() + " ago (expected " + b.config.FlushInterval.String() + "). Database may be slow."
-	} else if b.walSize > maxWalSize {
+	} else if b.walSize > int64(b.config.MaxSize) {
 		status = models.HealthStatusDegraded
 		message = "WAL file is large (" + fmt.Sprintf("%.2f MB", float64(b.walSize)/1024/1024) + ") - database may be slow or down"
 	} else if b.totalFlushErrors > 0 && b.totalFlushed > 0 {
@@ -208,28 +235,42 @@ func (b *DiskBuffer) Health() *models.ComponentHealth {
 		}
 	}
 
+	metadata := map[string]interface{}{
+		"type":               "disk",
+		"is_running":         b.isRunning,
+		"current_batch_size": currentBatchSize,
+		"max_size":           b.config.MaxSize,
+		"last_flush":         b.lastFlush,
+		"time_since_flush":   timeSinceLastFlush.String(),
+		"worker_count":       b.config.WorkerCount,
+		"wal_path":           b.walPath,
+		"wal_size_bytes":     b.walSize,
+		"wal_size_mb":        fmt.Sprintf("%.2f", float64(b.walSize)/1024/1024),
+		"total_flushed":      b.totalFlushed,
+		"total_flush_errors": b.totalFlushErrors,
+		"messages_dropped":   b.messagesDropped,
+		"avg_flush_duration": b.avgFlushDuration.String(),
+		"last_flush_error":   formatError(b.lastFlushError),
+		"adaptive_enabled":   b.config.Adaptive,
+		"adaptive_max_size":  b.adaptiveMaxSize,
+		"flush_count":        b.flushCount,
+	}
+
+	// Add adaptive-specific metadata
+	if b.config.Adaptive {
+		metadata["adaptive_max_size"] = b.adaptiveMaxSize
+		metadata["base_max_size"] = b.config.MaxSize
+		metadata["adaptive_min_size"] = b.adaptiveMinSize
+		metadata["adaptive_tune_threshold"] = b.adaptiveTuneThreshold
+		metadata["flush_count"] = b.flushCount
+	}
+
 	return &models.ComponentHealth{
 		Name:      "buffer",
 		Status:    status,
 		Message:   message,
 		CheckedAt: time.Now(),
-		Metadata: map[string]interface{}{
-			"type":               "disk",
-			"is_running":         b.isRunning,
-			"current_batch_size": currentBatchSize,
-			"max_size":           b.config.MaxSize,
-			"last_flush":         b.lastFlush,
-			"time_since_flush":   timeSinceLastFlush.String(),
-			"worker_count":       b.config.WorkerCount,
-			"wal_path":           b.walPath,
-			"wal_size_bytes":     b.walSize,
-			"wal_size_mb":        fmt.Sprintf("%.2f", float64(b.walSize)/1024/1024),
-			"total_flushed":      b.totalFlushed,
-			"total_flush_errors": b.totalFlushErrors,
-			"messages_dropped":   b.messagesDropped,
-			"avg_flush_duration": b.avgFlushDuration.String(),
-			"last_flush_error":   formatError(b.lastFlushError),
-		},
+		Metadata:  metadata,
 	}
 }
 
@@ -265,11 +306,18 @@ func (b *DiskBuffer) Add(msg *models.Message) error {
 	b.mu.Lock()
 	b.batch = append(b.batch, msg)
 	batchSize := len(b.batch)
-	shouldFlush := batchSize >= b.config.MaxSize
+
+	// Use adaptive max size if enabled, otherwise use config max size
+	currentMaxSize := b.adaptiveMaxSize
+	if b.config.Adaptive {
+		currentMaxSize = b.adaptiveMaxSize
+	}
+
+	shouldFlush := batchSize >= currentMaxSize
 	b.mu.Unlock()
 
-	b.log.Debug("Message %s added to disk buffer (channel: %s, wal_size: %d bytes)",
-		msg.ID, msg.Channel, b.walSize)
+	b.log.Debug("Message %s added to disk buffer (channel: %s, wal_size: %d bytes, batch: %d/%d)",
+		msg.ID, msg.Channel, b.walSize, batchSize, currentMaxSize)
 
 	if shouldFlush {
 		b.log.Debug("Batch size reached max capacity (%d) - triggering flush", batchSize)
@@ -316,37 +364,6 @@ func (b *DiskBuffer) recoverFromWAL() error {
 	}
 
 	return nil
-}
-
-// flushTicker periodically triggers a flush based on the flush interval
-func (b *DiskBuffer) flushTicker() {
-	defer b.wg.Done()
-
-	b.log.Debug("Flush ticker started with interval: %v", b.config.FlushInterval)
-
-	ticker := time.NewTicker(b.config.FlushInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			b.mu.Lock()
-			batchSize := len(b.batch)
-			timeSinceFlush := time.Since(b.lastFlush)
-			shouldFlush := batchSize > 0 && timeSinceFlush >= b.config.FlushInterval
-			b.mu.Unlock()
-
-			if shouldFlush {
-				b.log.Debug("Flush interval reached (%v since last flush) with %d messages - triggering flush",
-					timeSinceFlush, batchSize)
-				b.triggerFlush()
-			}
-
-		case <-b.ctx.Done():
-			b.log.Debug("Context cancelled - flush ticker exiting")
-			return
-		}
-	}
 }
 
 // triggerFlush signals that a flush should occur
@@ -421,15 +438,23 @@ func (b *DiskBuffer) retryFlush(workerID int) {
 func (b *DiskBuffer) flush() error {
 	b.mu.Lock()
 	if len(b.batch) == 0 {
+		b.lastFlush = time.Now()
 		b.mu.Unlock()
-		b.log.Debug("Flush called with empty batch - skipping")
+		b.log.Debug("Flush called with empty batch - updating last flush time")
 		return nil
 	}
 
 	// Take ownership of the current batch
 	batch := b.batch
 	batchSize := len(batch)
-	b.batch = make([]*models.Message, 0, b.config.MaxSize)
+
+	// Reallocate batch with current adaptive size
+	currentMaxSize := b.config.MaxSize
+	if b.config.Adaptive {
+		currentMaxSize = b.adaptiveMaxSize
+	}
+	b.batch = make([]*models.Message, 0, currentMaxSize)
+
 	flushStartTime := time.Now()
 	b.lastFlush = flushStartTime
 	b.mu.Unlock()
@@ -457,6 +482,7 @@ func (b *DiskBuffer) flush() error {
 	// Update metrics
 	b.mu.Lock()
 	b.totalFlushed += int64(batchSize)
+	b.flushCount++
 
 	// Calculate rolling average flush duration
 	if b.avgFlushDuration == 0 {
@@ -489,5 +515,27 @@ func (b *DiskBuffer) flush() error {
 			batchSize, duration)
 	}
 
+	// Adaptive tuning - only run if adaptive is enabled and we've completed enough flushes
+	if b.config.Adaptive {
+		b.tuneAdaptiveSettings(batchSize, duration)
+	}
+
 	return nil
+}
+
+// tuneAdaptiveSettings adjusts the buffer parameters based on flush performance
+func (b *DiskBuffer) tuneAdaptiveSettings(batchSize int, flushDuration time.Duration) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	TuneAdaptiveSettings(
+		batchSize,
+		b.adaptiveMaxSize,
+		b.adaptiveMinSize,
+		b.adaptiveTuneThreshold,
+		b.flushCount,
+		flushDuration,
+		b.config.FlushInterval,
+		b.log,
+	)
 }

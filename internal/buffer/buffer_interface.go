@@ -24,8 +24,12 @@ type Buffer interface {
 
 // Config holds configuration for any buffer type
 type Config struct {
-	MaxSize       int           // Maximum number of messages in buffer before flush
-	FlushInterval time.Duration // Maximum time to wait before flushing
-	WorkerCount   int           // Number of worker goroutines for flushing
-	WALPath       string        // Path for WAL file (disk buffer only)
+	MaxSize               int           // Maximum number of messages in buffer before flush
+	FlushInterval         time.Duration // Maximum time to wait before flushing
+	WorkerCount           int           // Number of worker goroutines for flushing
+	WALPath               string        // Path for WAL file (disk buffer only)
+	Adaptive              bool          // Whether to use adaptive flushing
+	AdaptiveMaxSize       int           // Adaptive max size (if adaptive enabled)
+	AdaptiveTuneThreshold int           // Number of flushes to tune adaptive flushing
+	AdaptiveMinSize       int           // Adaptive min size (if adaptive enabled)
 }

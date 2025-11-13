@@ -72,6 +72,37 @@ Controls the behavior of background scheduler processes that manage message life
 | `scheduler_poll_jitter_percent` | integer | Random jitter percentage applied to scheduler poll intervals to prevent thundering herd. Prevents all scheduler nodes from polling simultaneously. | **Yes** | 5-100 | - |
 | `scheduler_janitor_jitter_percent` | integer | Random jitter percentage applied to janitor intervals to distribute cleanup operations across nodes. | **Yes** | 5-100 | - |
 
+#### Why Multiple Scheduler Routines Matter for Scaling
+
+The scheduler is responsible for transitioning messages from `PENDING` to `READY` status when their `scheduled_at` time arrives. With a single scheduler routine, this becomes a bottleneck at high throughput.
+
+**Key Benefits of Multiple Scheduler Routines:**
+
+1. **Parallel Processing**: Multiple scheduler routines can process different batches of pending messages simultaneously. With `FOR UPDATE SKIP LOCKED`, each scheduler locks and processes a distinct set of messages without blocking others.
+
+2. **Higher Throughput**: If a single scheduler can process 1,000 messages per poll at 100ms intervals (10,000 msg/sec), running 5 scheduler routines can theoretically process 50,000 msg/sec. The actual throughput scales linearly up to your database's capacity.
+
+3. **Contention-Free Operation**: The optimized query using `FOR UPDATE SKIP LOCKED` ensures that when multiple schedulers query the same pending message batch, they never block each other. Each scheduler automatically skips locked rows and processes the next available messages.
+
+4. **Fault Tolerance**: If one scheduler routine experiences a transient issue (timeout, temporary network blip), other schedulers continue processing. This prevents a single point of failure from stalling the entire queue.
+
+5. **Reduced Latency at Scale**: With millions of pending messages scheduled far in the future, a single scheduler might take seconds to scan and process a large batch. Multiple schedulers divide this work, ensuring that messages scheduled to be ready "now" are marked promptly.
+
+**Example Scenario:**
+
+You have 10 million messages scheduled over the next 24 hours (average 115 msg/sec). At any given moment, 1,000-5,000 messages might be ready to transition from `PENDING` to `READY`.
+
+- **1 scheduler routine** (1,000 msg/poll @ 100ms): Processes 1,000 messages every 100ms, but may fall behind during traffic spikes.
+- **5 scheduler routines** (5,000 msg/poll combined @ 100ms): Each routine grabs 1,000 messages using `SKIP LOCKED`, processing 5,000 messages per cycle with no lock contention.
+
+**Configuration Recommendations:**
+
+- **Low-Moderate Throughput** (<10,000 msg/sec): `num_scheduler_nodes: 1-2`
+- **High Throughput** (10,000-50,000 msg/sec): `num_scheduler_nodes: 3-5`
+- **Very High Throughput** (>50,000 msg/sec): `num_scheduler_nodes: 5-10`
+
+Always pair with appropriate jitter (`scheduler_poll_jitter_percent: 15-25`) to prevent synchronized polling across routines.
+
 ### REST API Configuration
 
 Each API layer runs as an independent HTTP server on its own port.

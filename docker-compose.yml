@@ -1,6 +1,18 @@
 version: "3.8"
 
 services:
+  cockroach:
+    image: cockroachdb/cockroach:v24.2.0
+    container_name: cockroach
+    command: start-single-node --insecure
+    restart: unless-stopped
+    ports:
+      - "26257:26257" # SQL
+      - "8090:8080" # Admin UI
+    volumes:
+      - cockroach_data:/cockroach/cockroach-data
+      - ./setup_scripts/cockroach.sql:/docker-entrypoint-initdb.d/init.sql
+
   postgres:
     image: postgres:16-alpine
     container_name: smq-postgres

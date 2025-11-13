@@ -2,6 +2,8 @@ package postgres
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -22,28 +24,14 @@ type PostgresStore struct {
 
 // NewPostgresStore creates a new PostgreSQL store instance
 func NewPostgresStore(config *db.PGConfig, log *logger.Logger) (*PostgresStore, error) {
-	// Build connection string
-	// Open database connection
-	database, err := sqlx.Connect("postgres", config.ConnectionString)
+	pool, err := pg.NewConnectionPool("postgres", config.ConnectionString, config.MaxOpenConns, log)
 	if err != nil {
-		log.Error("Failed to connect to PostgreSQL database: %v", err)
-		return nil, fmt.Errorf("failed to connect to database: %w", err)
-	}
-
-	// Configure connection pool
-	database.SetMaxOpenConns(config.MaxOpenConns)
-	database.SetMaxIdleConns(config.MaxIdleConns)
-	database.SetConnMaxLifetime(time.Hour)
-
-	// Verify connection
-	if err := database.Ping(); err != nil {
-		log.Error("Failed to ping PostgreSQL database: %v", err)
-		return nil, fmt.Errorf("failed to ping database: %w", err)
+		return nil, fmt.Errorf("failed to create connection pool: %w", err)
 	}
 
 	store := &PostgresStore{
 		config: config,
-		db:     database,
+		db:     pool.DB(),
 		log:    log,
 	}
 
@@ -81,24 +69,36 @@ func (s *PostgresStore) UpdateMessageStatus(ctx context.Context, id uuid.UUID, s
 }
 
 // MarkPendingMessagesAsReady updates pending messages that are ready
+// Uses FOR UPDATE SKIP LOCKED for optimal concurrency with multiple scheduler nodes.
 func (s *PostgresStore) MarkPendingMessagesAsReady(ctx context.Context, currentTime time.Time) (int64, error) {
-	// Use a sub-select to avoid locking the whole table
-	// This is more efficient for concurrent schedulers
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		s.log.Error("Failed to begin transaction for scheduler: %v", err)
+		return 0, fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			s.log.Error("Failed to rollback transaction: %v", err)
+		}
+	}()
+
 	query := `
-		UPDATE messages m
-		SET status = $1
-		FROM (
+		WITH locked_messages AS (
 			SELECT id
 			FROM messages
-			WHERE status = $2
-			  AND scheduled_at <= $3
+			WHERE status = $1
+			  AND scheduled_at <= $2
 			ORDER BY scheduled_at ASC
-			LIMIT $4
-		) AS selected
-		WHERE m.id = selected.id
+			LIMIT $3
+			FOR UPDATE SKIP LOCKED
+		)
+		UPDATE messages
+		SET status = $4
+		FROM locked_messages
+		WHERE messages.id = locked_messages.id
 	`
 
-	result, err := s.db.ExecContext(ctx, query, models.StatusReady, models.StatusPending, currentTime, s.config.MaxMessagesPerPoll)
+	result, err := tx.ExecContext(ctx, query, models.StatusPending, currentTime, s.config.MaxMessagesPerPoll, models.StatusReady)
 	if err != nil {
 		s.log.Error("Failed to mark pending messages as ready: %v", err)
 		return 0, fmt.Errorf("failed to mark pending messages as ready: %w", err)
@@ -107,6 +107,11 @@ func (s *PostgresStore) MarkPendingMessagesAsReady(ctx context.Context, currentT
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		return 0, fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		s.log.Error("Failed to commit scheduler transaction: %v", err)
+		return 0, fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
 	return rowsAffected, nil
@@ -152,8 +157,7 @@ func (s *PostgresStore) AcquireNextMessage(ctx context.Context, channel string, 
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer func() {
-		err = tx.Rollback()
-		if err != nil {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
 			s.log.Error("Failed to rollback transaction: %v", err)
 		}
 	}()

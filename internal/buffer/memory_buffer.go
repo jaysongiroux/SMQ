@@ -28,11 +28,19 @@ type MemoryBuffer struct {
 	isRunning      bool
 	log            *logger.Logger
 
+	// Adaptive tuning fields
+	adaptiveEnabled       bool
+	adaptiveMaxSize       int          // Current adaptive max size (if adaptive enabled)
+	adaptiveFlushTicker   *time.Ticker // Ticker that can be reset for adaptive intervals
+	adaptiveTuneThreshold int          // Number of flushes to tune adaptive flushing
+	adaptiveMinSize       int          // Adaptive min size (if adaptive enabled)
+
 	// Metrics
 	totalFlushed     int64
 	totalFlushErrors int64
 	messagesDropped  int64
 	avgFlushDuration time.Duration
+	flushCount       int64 // Track number of flushes for adaptive tuning
 }
 
 // NewMemoryBuffer creates a new in-memory buffer instance
@@ -40,15 +48,19 @@ func NewMemoryBuffer(config *Config, store db.Store, log *logger.Logger) *Memory
 	ctx, cancel := context.WithCancel(context.Background())
 
 	b := &MemoryBuffer{
-		config:    config,
-		store:     store,
-		log:       log,
-		messages:  make(chan *models.Message, config.MaxSize*2),
-		flushChan: make(chan struct{}, 1),
-		ctx:       ctx,
-		cancel:    cancel,
-		batch:     make([]*models.Message, 0, config.MaxSize),
-		lastFlush: time.Now(),
+		config:                config,
+		store:                 store,
+		log:                   log,
+		messages:              make(chan *models.Message, config.MaxSize*2),
+		flushChan:             make(chan struct{}, 1),
+		ctx:                   ctx,
+		cancel:                cancel,
+		batch:                 make([]*models.Message, 0, config.MaxSize),
+		lastFlush:             time.Now(),
+		adaptiveEnabled:       config.Adaptive,
+		adaptiveMaxSize:       config.AdaptiveMaxSize,
+		adaptiveTuneThreshold: config.AdaptiveTuneThreshold,
+		adaptiveMinSize:       config.AdaptiveMinSize,
 	}
 
 	return b
@@ -60,8 +72,12 @@ func (b *MemoryBuffer) Start() {
 	b.isRunning = true
 	b.mu.Unlock()
 
-	b.log.Info("Starting memory buffer with config: max_size=%d, flush_interval=%v, worker_count=%d",
-		b.config.MaxSize, b.config.FlushInterval, b.config.WorkerCount)
+	adaptiveStr := "disabled"
+	if b.config.Adaptive {
+		adaptiveStr = "enabled"
+	}
+	b.log.Info("Starting memory buffer with config: max_size=%d, flush_interval=%v, worker_count=%d, adaptive=%s",
+		b.config.MaxSize, b.config.FlushInterval, b.config.WorkerCount, adaptiveStr)
 
 	// Start flush workers
 	for i := 0; i < b.config.WorkerCount; i++ {
@@ -77,9 +93,16 @@ func (b *MemoryBuffer) Start() {
 
 	// Start the flush ticker
 	b.wg.Add(1)
-	go b.flushTicker()
+	go FlushTicker(&GenericBuffer{
+		mu:                  &b.mu,
+		wg:                  &b.wg,
+		adaptiveFlushTicker: &b.adaptiveFlushTicker,
+		batch:               &b.batch,
+		lastFlush:           &b.lastFlush,
+		triggerFlush:        b.triggerFlush,
+		ctx:                 b.ctx,
+	}, b.config.FlushInterval, b.adaptiveEnabled, b.log)
 	b.log.Debug("Started flush ticker")
-
 	b.log.Info("Memory buffer started successfully")
 }
 
@@ -123,13 +146,18 @@ func (b *MemoryBuffer) Health() *models.ComponentHealth {
 	timeSinceLastFlush := time.Since(b.lastFlush)
 	channelUtilization := float64(len(b.messages)) / float64(cap(b.messages)) * 100
 
+	currentMaxSize := b.config.MaxSize
+	if b.config.Adaptive {
+		currentMaxSize = b.adaptiveMaxSize
+	}
+
 	if !b.isRunning {
 		status = models.HealthStatusUnhealthy
 		message = "Memory buffer is not running - system shutting down or not started"
 	} else if b.lastFlushError != nil {
 		status = models.HealthStatusUnhealthy
 		message = "Last flush failed: " + b.lastFlushError.Error() + " - messages may be lost"
-	} else if currentBatchSize >= b.config.MaxSize {
+	} else if currentBatchSize >= currentMaxSize {
 		status = models.HealthStatusDegraded
 		message = "Memory buffer is full - batch size reached maximum capacity. Flush may be blocked or slow."
 	} else if currentBatchSize > 0 && timeSinceLastFlush > b.config.FlushInterval*2 {
@@ -146,28 +174,40 @@ func (b *MemoryBuffer) Health() *models.ComponentHealth {
 		}
 	}
 
+	metadata := map[string]interface{}{
+		"type":                "memory",
+		"is_running":          b.isRunning,
+		"current_batch_size":  currentBatchSize,
+		"max_size":            b.config.MaxSize,
+		"last_flush":          b.lastFlush,
+		"time_since_flush":    timeSinceLastFlush.String(),
+		"worker_count":        b.config.WorkerCount,
+		"channel_size":        len(b.messages),
+		"channel_capacity":    cap(b.messages),
+		"channel_utilization": formatFloat(channelUtilization) + "%",
+		"total_flushed":       b.totalFlushed,
+		"total_flush_errors":  b.totalFlushErrors,
+		"messages_dropped":    b.messagesDropped,
+		"avg_flush_duration":  b.avgFlushDuration.String(),
+		"last_flush_error":    formatError(b.lastFlushError),
+		"adaptive_enabled":    b.config.Adaptive,
+	}
+
+	// Add adaptive-specific metadata
+	if b.config.Adaptive {
+		metadata["adaptive_max_size"] = b.adaptiveMaxSize
+		metadata["base_max_size"] = b.config.MaxSize
+		metadata["adaptive_min_size"] = b.adaptiveMinSize
+		metadata["adaptive_tune_threshold"] = b.adaptiveTuneThreshold
+		metadata["flush_count"] = b.flushCount
+	}
+
 	return &models.ComponentHealth{
 		Name:      "buffer",
 		Status:    status,
 		Message:   message,
 		CheckedAt: time.Now(),
-		Metadata: map[string]interface{}{
-			"type":                "memory",
-			"is_running":          b.isRunning,
-			"current_batch_size":  currentBatchSize,
-			"max_size":            b.config.MaxSize,
-			"last_flush":          b.lastFlush,
-			"time_since_flush":    timeSinceLastFlush.String(),
-			"worker_count":        b.config.WorkerCount,
-			"channel_size":        len(b.messages),
-			"channel_capacity":    cap(b.messages),
-			"channel_utilization": formatFloat(channelUtilization) + "%",
-			"total_flushed":       b.totalFlushed,
-			"total_flush_errors":  b.totalFlushErrors,
-			"messages_dropped":    b.messagesDropped,
-			"avg_flush_duration":  b.avgFlushDuration.String(),
-			"last_flush_error":    formatError(b.lastFlushError),
-		},
+		Metadata:  metadata,
 	}
 }
 
@@ -223,7 +263,14 @@ func (b *MemoryBuffer) batchCollector() {
 			b.mu.Lock()
 			b.batch = append(b.batch, msg)
 			batchSize := len(b.batch)
-			shouldFlush := batchSize >= b.config.MaxSize
+
+			// Use adaptive max size if enabled, otherwise use config max size
+			currentMaxSize := b.config.MaxSize
+			if b.config.Adaptive {
+				currentMaxSize = b.adaptiveMaxSize
+			}
+
+			shouldFlush := batchSize >= currentMaxSize
 			b.mu.Unlock()
 
 			if shouldFlush {
@@ -233,37 +280,6 @@ func (b *MemoryBuffer) batchCollector() {
 
 		case <-b.ctx.Done():
 			b.log.Debug("Context cancelled - batch collector exiting")
-			return
-		}
-	}
-}
-
-// flushTicker periodically triggers a flush based on the flush interval
-func (b *MemoryBuffer) flushTicker() {
-	defer b.wg.Done()
-
-	b.log.Debug("Flush ticker started with interval: %v", b.config.FlushInterval)
-
-	ticker := time.NewTicker(b.config.FlushInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			b.mu.Lock()
-			batchSize := len(b.batch)
-			timeSinceFlush := time.Since(b.lastFlush)
-			shouldFlush := batchSize > 0 && timeSinceFlush >= b.config.FlushInterval
-			b.mu.Unlock()
-
-			if shouldFlush {
-				b.log.Debug("Flush interval reached (%v since last flush) with %d messages - triggering flush",
-					timeSinceFlush, batchSize)
-				b.triggerFlush()
-			}
-
-		case <-b.ctx.Done():
-			b.log.Debug("Context cancelled - flush ticker exiting")
 			return
 		}
 	}
@@ -341,15 +357,23 @@ func (b *MemoryBuffer) retryFlush(workerID int) {
 func (b *MemoryBuffer) flush() error {
 	b.mu.Lock()
 	if len(b.batch) == 0 {
+		b.lastFlush = time.Now()
 		b.mu.Unlock()
-		b.log.Debug("Flush called with empty batch - skipping")
+		b.log.Debug("Flush called with empty batch - updating last flush time")
 		return nil
 	}
 
 	// Take ownership of the current batch
 	batch := b.batch
 	batchSize := len(batch)
-	b.batch = make([]*models.Message, 0, b.config.MaxSize)
+
+	// Reallocate batch with current adaptive size
+	currentMaxSize := b.config.MaxSize
+	if b.config.Adaptive {
+		currentMaxSize = b.adaptiveMaxSize
+	}
+	b.batch = make([]*models.Message, 0, currentMaxSize)
+
 	flushStartTime := time.Now()
 	b.lastFlush = flushStartTime
 	b.mu.Unlock()
@@ -377,6 +401,7 @@ func (b *MemoryBuffer) flush() error {
 	// Update metrics
 	b.mu.Lock()
 	b.totalFlushed += int64(batchSize)
+	b.flushCount++
 
 	// Calculate rolling average flush duration
 	if b.avgFlushDuration == 0 {
@@ -396,5 +421,27 @@ func (b *MemoryBuffer) flush() error {
 			batchSize, duration)
 	}
 
+	// Adaptive tuning - only run if adaptive is enabled and we've completed enough flushes
+	if b.config.Adaptive {
+		b.tuneAdaptiveSettings(batchSize, duration)
+	}
+
 	return nil
+}
+
+// tuneAdaptiveSettings adjusts the buffer parameters based on flush performance
+func (b *MemoryBuffer) tuneAdaptiveSettings(batchSize int, flushDuration time.Duration) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	TuneAdaptiveSettings(
+		batchSize,
+		b.adaptiveMaxSize,
+		b.adaptiveMinSize,
+		b.adaptiveTuneThreshold,
+		b.flushCount,
+		flushDuration,
+		b.config.FlushInterval,
+		b.log,
+	)
 }

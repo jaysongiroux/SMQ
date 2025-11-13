@@ -20,7 +20,7 @@
   "min_scheduled_at_future_ms": 5000,
   "janitor_delete_failed_messages": true,
   "buffer_type": "disk",
-  "datastore": "cockroach",
+  "datastore": "postgres",
   "buffer_wal_path": "./smq_wal.log",
   "multi_region_supplement": false,
   "multi_region_scheduler": false,
@@ -29,5 +29,9 @@
   "cockroach_max_idle_conns": 5,
   "postgres_max_open_conns": 25,
   "postgres_max_idle_conns": 5,
-  "buffer_max_size_kb": 10
+  "buffer_max_size_kb": 10,
+  "buffer_adaptive": true,
+  "buffer_adaptive_max_size": 1000,
+  "buffer_adaptive_tune_threshold": 5,
+  "buffer_adaptive_min_size": 10
 }

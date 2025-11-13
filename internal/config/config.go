@@ -38,11 +38,15 @@ type Config struct {
 	LogLevel              string
 
 	// Buffer configuration
-	BufferType            string
-	BufferWALPath         string
-	BufferFlushIntervalMs int
-	BufferMaxSizeKb       int
-	BufferWorkerCount     int
+	BufferType                  string
+	BufferWALPath               string
+	BufferFlushIntervalMs       int
+	BufferMaxSizeKb             int
+	BufferWorkerCount           int
+	BufferAdaptive              bool
+	BufferAdaptiveMaxSize       int
+	BufferAdaptiveTuneThreshold int
+	BufferAdaptiveMinSize       int
 
 	// Multi-region support
 	MultiRegionSupplement bool
@@ -113,6 +117,10 @@ const (
 	CockroachMaxIdleConnsKey         = "cockroach_max_idle_conns"
 	NodeIDKey                        = "node_id"
 	ApiKeyKey                        = "api_key"
+	BufferAdaptiveMaxSizeKey         = "buffer_adaptive_max_size"
+	BufferAdaptiveTuneThresholdKey   = "buffer_adaptive_tune_threshold"
+	BufferAdaptiveMinSizeKey         = "buffer_adaptive_min_size"
+	BufferAdaptiveKey                = "buffer_adaptive"
 )
 
 const (
@@ -171,6 +179,10 @@ type JSONConfig struct {
 	ConfigPath                    string `json:"config_path"`
 	NodeID                        string `json:"node_id"`
 	ApiKey                        string `json:"api_key"`
+	BufferAdaptiveMaxSize         int    `json:"buffer_adaptive_max_size"`
+	BufferAdaptiveTuneThreshold   int    `json:"buffer_adaptive_tune_threshold"`
+	BufferAdaptiveMinSize         int    `json:"buffer_adaptive_min_size"`
+	BufferAdaptive                bool   `json:"buffer_adaptive"`
 }
 
 // NewConfig creates a new config instance by loading config.json and applying environment overrides
@@ -226,11 +238,15 @@ func NewConfig() (*Config, error) {
 		LogLevel:              jsonCfg.LogLevel,
 
 		// Buffer
-		BufferType:            jsonCfg.BufferType,
-		BufferWALPath:         jsonCfg.BufferWALPath,
-		BufferFlushIntervalMs: jsonCfg.BufferFlushIntervalMs,
-		BufferMaxSizeKb:       jsonCfg.BufferMaxSizeKb,
-		BufferWorkerCount:     jsonCfg.BufferWorkerCount,
+		BufferType:                  jsonCfg.BufferType,
+		BufferWALPath:               jsonCfg.BufferWALPath,
+		BufferFlushIntervalMs:       jsonCfg.BufferFlushIntervalMs,
+		BufferMaxSizeKb:             jsonCfg.BufferMaxSizeKb,
+		BufferWorkerCount:           jsonCfg.BufferWorkerCount,
+		BufferAdaptive:              jsonCfg.BufferAdaptive,
+		BufferAdaptiveMaxSize:       jsonCfg.BufferAdaptiveMaxSize,
+		BufferAdaptiveTuneThreshold: jsonCfg.BufferAdaptiveTuneThreshold,
+		BufferAdaptiveMinSize:       jsonCfg.BufferAdaptiveMinSize,
 
 		// Multi-region
 		MultiRegionSupplement: jsonCfg.MultiRegionSupplement,
@@ -325,6 +341,10 @@ func (c *Config) applyEnvOverrides(jsonCfg *JSONConfig) {
 	overrideInt(&c.BufferFlushIntervalMs, BufferFlushIntervalKey, jsonCfg.BufferFlushIntervalMs)
 	overrideInt(&c.BufferMaxSizeKb, BufferMaxSizeKbKey, jsonCfg.BufferMaxSizeKb)
 	overrideInt(&c.BufferWorkerCount, BufferWorkerCountKey, jsonCfg.BufferWorkerCount)
+	overrideInt(&c.BufferAdaptiveMaxSize, BufferAdaptiveMaxSizeKey, jsonCfg.BufferAdaptiveMaxSize)
+	overrideInt(&c.BufferAdaptiveTuneThreshold, BufferAdaptiveTuneThresholdKey, jsonCfg.BufferAdaptiveTuneThreshold)
+	overrideInt(&c.BufferAdaptiveMinSize, BufferAdaptiveMinSizeKey, jsonCfg.BufferAdaptiveMinSize)
+	overrideBool(&c.BufferAdaptive, BufferAdaptiveKey, jsonCfg.BufferAdaptive)
 	overrideString(&c.LogLevel, LogLevelKey, jsonCfg.LogLevel)
 	overrideString(&c.BufferType, BufferTypeKey, jsonCfg.BufferType)
 	overrideString(&c.BufferWALPath, BufferWALPathKey, jsonCfg.BufferWALPath)
@@ -469,6 +489,33 @@ func (c *Config) Validate() error {
 	}
 	if err := ValidateMinValue(SchedulerJanitorIntervalKey, c.SchedulerJanitorIntervalMs, minSchedulerJanitorIntervalMs); err != nil {
 		return err
+	}
+
+	// Buffer
+	minAdaptiveMaxSize := 100
+	maxAdaptiveMaxSize := 1000000
+	minAdaptiveTuneThreshold := 1
+	maxAdaptiveTuneThreshold := 1000000
+	minAdaptiveMinSize := 10
+	maxAdaptiveMinSize := 1000000
+	// only validate if adaptive is enabled
+	if c.BufferAdaptive {
+		if err := ValidateRange(BufferAdaptiveMaxSizeKey, c.BufferAdaptiveMaxSize, minAdaptiveMaxSize, maxAdaptiveMaxSize); err != nil {
+			return err
+		}
+		if err := ValidateRange(BufferAdaptiveTuneThresholdKey, c.BufferAdaptiveTuneThreshold, minAdaptiveTuneThreshold, maxAdaptiveTuneThreshold); err != nil {
+			return err
+		}
+		if err := ValidateRange(BufferAdaptiveMinSizeKey, c.BufferAdaptiveMinSize, minAdaptiveMinSize, maxAdaptiveMinSize); err != nil {
+			return err
+		}
+		// adaptiveMinSize must be less than adaptiveMaxSize
+		if err := ValidateMaxValue(BufferAdaptiveMinSizeKey, c.BufferAdaptiveMinSize, c.BufferAdaptiveMaxSize); err != nil {
+			return err
+		}
+		if err := ValidateBoolean(BufferAdaptiveKey, strconv.FormatBool(c.BufferAdaptive)); err != nil {
+			return err
+		}
 	}
 
 	// Validate jitter percentages

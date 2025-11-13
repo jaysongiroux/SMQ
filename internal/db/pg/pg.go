@@ -2,7 +2,9 @@ package pg
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -12,6 +14,46 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/lib/pq"
 )
+
+type ConnectionPool struct {
+	db           *sqlx.DB
+	maxConns     int
+	maxIdleConns int
+}
+
+func NewConnectionPool(driver string, dsn string, maxConns int, log *logger.Logger) (*ConnectionPool, error) {
+	db, err := sqlx.Connect(driver, dsn)
+	if err != nil {
+		log.Error("Failed to connect to database: %v", err)
+		return nil, fmt.Errorf("failed to connect to database: %w", err)
+	}
+
+	db.SetMaxOpenConns(maxConns)
+	db.SetMaxIdleConns(maxConns / 2)
+	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetConnMaxIdleTime(1 * time.Minute)
+
+	if err := db.Ping(); err != nil {
+		log.Error("Failed to ping database: %v", err)
+		return nil, fmt.Errorf("failed to ping database: %w", err)
+	}
+
+	log.Info("Database connection pool established (max_conns=%d, max_idle_conns=%d)", maxConns, maxConns/2)
+
+	return &ConnectionPool{
+		db:           db,
+		maxConns:     maxConns,
+		maxIdleConns: maxConns / 2,
+	}, nil
+}
+
+func (p *ConnectionPool) DB() *sqlx.DB {
+	return p.db
+}
+
+func (p *ConnectionPool) Close() error {
+	return p.db.Close()
+}
 
 func DeleteStaleNodes(ctx context.Context, staleThreshold time.Duration, log *logger.Logger, db *sqlx.DB) (int64, error) {
 	// Calculate the cutoff time
@@ -338,8 +380,7 @@ func BatchCreateMessages(ctx context.Context, msgs []*models.Message, log *logge
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 	defer func() {
-		err = tx.Rollback()
-		if err != nil {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
 			log.Error("Failed to rollback transaction: %v", err)
 		}
 	}()

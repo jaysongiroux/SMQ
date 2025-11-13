@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/jaysongiroux/smq/internal/bufferfactory"
+	"github.com/jaysongiroux/smq/internal/buffer"
 	"github.com/jaysongiroux/smq/internal/config"
 	"github.com/jaysongiroux/smq/internal/consumer"
 	"github.com/jaysongiroux/smq/internal/dbfactory"
@@ -54,8 +54,7 @@ func main() {
 		log.Fatal("Failed to initialize database: %v", err)
 	}
 	defer func() {
-		err = store.Close()
-		if err != nil {
+		if err := store.Close(); err != nil {
 			log.Error("Failed to close database: %v", err)
 		}
 	}()
@@ -78,14 +77,13 @@ func main() {
 
 	// Initialize buffer for batching messages (memory or disk-backed)
 	bufferLog := log.WithService("buffer")
-	messageBuffer, err := bufferfactory.NewBuffer(cfg, store, bufferLog)
+	messageBuffer, err := buffer.NewBuffer(cfg, store, bufferLog)
 	if err != nil {
 		log.Fatal("Failed to initialize buffer: %v", err)
 	}
 	messageBuffer.Start()
 	defer func() {
-		err = messageBuffer.Stop()
-		if err != nil {
+		if err := messageBuffer.Stop(); err != nil {
 			log.Error("Failed to stop buffer: %v", err)
 		}
 	}()

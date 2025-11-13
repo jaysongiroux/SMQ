@@ -40,11 +40,12 @@ CREATE TABLE IF NOT EXISTS messages (
 -- CockroachDB automatically optimizes these for regional queries.
 
 -- Scheduler index: efficiently find PENDING messages in the local region.
-CREATE INDEX IF NOT EXISTS idx_messages_scheduler ON messages(status, scheduled_at) 
+-- Including crdb_region explicitly helps with region-aware scheduler queries.
+CREATE INDEX IF NOT EXISTS idx_messages_scheduler ON messages(status, scheduled_at, crdb_region) 
     WHERE status = 'PENDING';
 
 -- Consumer index: efficiently find READY messages for polling in the local region.
-CREATE INDEX IF NOT EXISTS idx_messages_consumer ON messages(channel, status, scheduled_at) 
+CREATE INDEX IF NOT EXISTS idx_messages_consumer ON messages (channel, status, scheduled_at, crdb_region) 
     WHERE status = 'READY';
 
 -- Janitor index: efficiently find stale ACQUIRED messages in the local region.
