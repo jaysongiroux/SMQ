@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jaysongiroux/smq/internal/circuit_breaker"
 	"github.com/jaysongiroux/smq/internal/db"
 	"github.com/jaysongiroux/smq/internal/logger"
 	"github.com/jaysongiroux/smq/internal/models"
@@ -25,26 +26,60 @@ type Scheduler struct {
 
 type SchedulerNode struct {
 	id             int
+	circuitBreaker *circuit_breaker.CircuitBreaker
 	isRunning      bool
 	lastRun        time.Time
 	messagesMarked int64
 	mu             sync.RWMutex
 }
 
-func NewScheduler(config *SchedulerConfig, store db.Store, numSchedulerNodes, numJanitorNodes int, log *logger.Logger) *Scheduler {
+func NewScheduler(
+	config *SchedulerConfig,
+	store db.Store,
+	numSchedulerNodes,
+	numJanitorNodes int,
+	log *logger.Logger,
+) *Scheduler {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	schedulerNodes := make([]*SchedulerNode, numSchedulerNodes)
+
 	for i := 0; i < numSchedulerNodes; i++ {
+		// Create circuit breaker for this scheduler
+		cb := circuit_breaker.NewCircuitBreaker(
+			circuit_breaker.Config{
+				Name:            "scheduler",
+				MaxFailures:     config.CBMaxFailures,
+				Timeout:         config.CBTimeout,
+				ResetTimeout:    config.CBResetTimeout,
+				HalfOpenMaxReqs: config.HalfOpenMaxReqs,
+				Log:             log,
+			},
+		)
 		schedulerNodes[i] = &SchedulerNode{
-			id: i,
+			id:             i,
+			circuitBreaker: cb,
 		}
 	}
 
 	janitorNodes := make([]*JanitorNode, numJanitorNodes)
 	for i := 0; i < numJanitorNodes; i++ {
+
+		// Create circuit breaker for this scheduler
+		cb := circuit_breaker.NewCircuitBreaker(
+			circuit_breaker.Config{
+				Name:            "scheduler",
+				MaxFailures:     config.CBMaxFailures,
+				Timeout:         config.CBTimeout,
+				ResetTimeout:    config.CBResetTimeout,
+				HalfOpenMaxReqs: config.HalfOpenMaxReqs,
+				Log:             log,
+			},
+		)
+
 		janitorNodes[i] = &JanitorNode{
-			id: i,
+			id:             i,
+			circuitBreaker: cb,
 		}
 	}
 
@@ -110,6 +145,7 @@ func (s *Scheduler) Stop() error {
 	return nil
 }
 
+// Health returns health status for all scheduler and janitor nodes
 func (s *Scheduler) Health() map[string]*models.ComponentHealth {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -129,20 +165,38 @@ func (s *Scheduler) Health() map[string]*models.ComponentHealth {
 	return health
 }
 
+// getSchedulerHealth returns health for all scheduler nodes including circuit breaker state
 func (s *Scheduler) getSchedulerHealth() map[string]*models.ComponentHealth {
 	health := make(map[string]*models.ComponentHealth)
 
 	for _, node := range s.schedulerNodes {
 		node.mu.RLock()
+
+		// Get circuit breaker metrics
+		cbMetrics := node.circuitBreaker.GetMetrics()
+
+		// Determine health status based on node state and circuit breaker
 		status := models.HealthStatusHealthy
 		message := "Scheduler node is operational"
 
 		if !node.isRunning {
 			status = models.HealthStatusUnhealthy
 			message = "Scheduler node is not running"
+		} else if cbMetrics.State == circuit_breaker.StateOpen {
+			status = models.HealthStatusUnhealthy
+			message = fmt.Sprintf("Circuit breaker open - paused after %d failures (last failure: %v ago)",
+				cbMetrics.ConsecutiveFailures,
+				time.Since(cbMetrics.LastFailureTime).Round(time.Second))
+		} else if cbMetrics.State == circuit_breaker.StateHalfOpen {
+			status = models.HealthStatusDegraded
+			message = "Circuit breaker testing recovery - limited requests"
 		} else if time.Since(node.lastRun) > s.config.PollInterval*3 {
 			status = models.HealthStatusDegraded
-			message = "Scheduler node is delayed"
+			message = fmt.Sprintf("Scheduler node delayed - last run %v ago",
+				time.Since(node.lastRun).Round(time.Second))
+		} else if cbMetrics.SuccessRate < 95 && cbMetrics.TotalRequests > 10 {
+			status = models.HealthStatusDegraded
+			message = fmt.Sprintf("Low success rate: %.1f%%", cbMetrics.SuccessRate)
 		}
 
 		health[fmt.Sprintf("scheduler-node-%d", node.id)] = &models.ComponentHealth{
@@ -154,12 +208,43 @@ func (s *Scheduler) getSchedulerHealth() map[string]*models.ComponentHealth {
 				"is_running":      node.isRunning,
 				"last_run":        node.lastRun,
 				"messages_marked": node.messagesMarked,
+
+				// Circuit breaker metrics
+				"circuit_breaker": map[string]interface{}{
+					"state":                string(cbMetrics.State),
+					"total_requests":       cbMetrics.TotalRequests,
+					"total_successes":      cbMetrics.TotalSuccesses,
+					"total_failures":       cbMetrics.TotalFailures,
+					"total_timeouts":       cbMetrics.TotalTimeouts,
+					"success_rate":         fmt.Sprintf("%.1f%%", cbMetrics.SuccessRate),
+					"consecutive_failures": cbMetrics.ConsecutiveFailures,
+					"total_circuit_opens":  cbMetrics.TotalCircuitOpens,
+					"last_failure_time":    cbMetrics.LastFailureTime,
+				},
 			},
 		}
 		node.mu.RUnlock()
 	}
 
 	return health
+}
+
+func (s *Scheduler) genericSchedulerCircuitBreaker(node *SchedulerNode, fn func(ctx context.Context, node *SchedulerNode) error) {
+	s.log.Debug("Scheduler node %d checking for pending messages", node.id)
+
+	err := node.circuitBreaker.Execute(s.ctx, func(ctx context.Context) error {
+		fn(ctx, node)
+		return nil
+	})
+
+	if err != nil {
+		if err == circuit_breaker.ErrCircuitOpen {
+			s.log.Debug("Scheduler node %d: circuit breaker is open, skipping poll", node.id)
+			return
+		}
+		s.log.Error("Scheduler node %d failed to mark pending messages: %v", node.id, err)
+		return
+	}
 }
 
 func (s *Scheduler) schedulerLoop(node *SchedulerNode) {
@@ -172,27 +257,27 @@ func (s *Scheduler) schedulerLoop(node *SchedulerNode) {
 	ticker := time.NewTicker(jitteredInterval)
 	defer ticker.Stop()
 
-	s.markPendingMessagesReady(node)
+	// Initial run
+	s.genericSchedulerCircuitBreaker(node, s.markPendingMessagesReady)
 
 	for {
 		select {
 		case <-ticker.C:
-			s.markPendingMessagesReady(node)
+			s.genericSchedulerCircuitBreaker(node, s.markPendingMessagesReady)
 
 		case <-s.ctx.Done():
+			node.mu.Lock()
+			node.isRunning = false
+			node.mu.Unlock()
 			return
 		}
 	}
 }
 
-func (s *Scheduler) markPendingMessagesReady(node *SchedulerNode) {
-	s.log.Debug("Scheduler node %d checking for pending messages", node.id)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
+func (s *Scheduler) markPendingMessagesReady(ctx context.Context, node *SchedulerNode) error {
 	count, err := s.store.MarkPendingMessagesAsReady(ctx, time.Now())
 
+	// Update node state
 	node.mu.Lock()
 	node.lastRun = time.Now()
 	if err == nil {
@@ -201,9 +286,12 @@ func (s *Scheduler) markPendingMessagesReady(node *SchedulerNode) {
 	node.mu.Unlock()
 
 	if err != nil {
-		s.log.Error("Scheduler node %d failed to mark pending messages: %v", node.id, err)
-		return
+		return fmt.Errorf("failed to mark messages: %w", err)
 	}
 
-	s.log.Info("Scheduler node %d marked %d messages as ready", node.id, count)
+	if count > 0 {
+		s.log.Info("Scheduler node %d marked %d messages as ready", node.id, count)
+	}
+
+	return nil
 }

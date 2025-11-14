@@ -3,124 +3,15 @@ package scheduler
 import (
 	"context"
 	"errors"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
+	"github.com/jaysongiroux/smq/internal/circuit_breaker"
 	"github.com/jaysongiroux/smq/internal/config"
 	"github.com/jaysongiroux/smq/internal/logger"
 	"github.com/jaysongiroux/smq/internal/models"
+	"github.com/jaysongiroux/smq/internal/testutils"
 )
-
-// mockStore implements db.Store interface for testing
-type mockStore struct {
-	markPendingCount         int64
-	markPendingError         error
-	markStaleCount           int64
-	markStaleError           error
-	deleteStaleNodesCount    int64
-	deleteStaleNodesError    error
-	cleanFailedMessagesCount int64
-	cleanFailedMessagesError error
-	markPendingCalls         int
-	markStaleCalls           int
-	deleteStaleNodesCalls    int
-	cleanFailedMessagesCalls int
-	mu                       sync.Mutex
-}
-
-func (m *mockStore) BatchCreateMessages(ctx context.Context, msgs []*models.Message) error {
-	return nil
-}
-
-func (m *mockStore) DeleteMessage(ctx context.Context, id uuid.UUID) error {
-	return nil
-}
-
-func (m *mockStore) UpdateMessageStatus(ctx context.Context, id uuid.UUID, status models.MessageStatus) error {
-	return nil
-}
-
-func (m *mockStore) MarkPendingMessagesAsReady(ctx context.Context, currentTime time.Time) (int64, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.markPendingCalls++
-	if m.markPendingError != nil {
-		return 0, m.markPendingError
-	}
-	return m.markPendingCount, nil
-}
-
-func (m *mockStore) MarkStaleAcquiredMessagesAsReady(ctx context.Context, staleThreshold time.Duration) (int64, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.markStaleCalls++
-	if m.markStaleError != nil {
-		return 0, m.markStaleError
-	}
-	return m.markStaleCount, nil
-}
-
-func (m *mockStore) AcquireNextMessage(ctx context.Context, channel string, max int) ([]*models.Message, error) {
-	return nil, nil
-}
-
-func (m *mockStore) AckMessage(ctx context.Context, ids []uuid.UUID) error {
-	return nil
-}
-
-func (m *mockStore) NackMessage(ctx context.Context, ids []uuid.UUID) error {
-	return nil
-}
-
-func (m *mockStore) CleanFailedMessages(ctx context.Context) (int64, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.cleanFailedMessagesCalls++
-	if m.cleanFailedMessagesError != nil {
-		return 0, m.cleanFailedMessagesError
-	}
-	return m.cleanFailedMessagesCount, nil
-}
-
-func (m *mockStore) ListChannels(ctx context.Context, limit int, offset int) ([]*models.Channel, error) {
-	return nil, nil
-}
-
-func (m *mockStore) RegisterNode(ctx context.Context, node *models.Node) error {
-	return nil
-}
-
-func (m *mockStore) UpdateNode(ctx context.Context, nodeID string, status string, metadata map[string]interface{}) error {
-	return nil
-}
-
-func (m *mockStore) DeleteNode(ctx context.Context, nodeID string) error {
-	return nil
-}
-
-func (m *mockStore) DeleteStaleNodes(ctx context.Context, staleThreshold time.Duration) (int64, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.deleteStaleNodesCalls++
-	if m.deleteStaleNodesError != nil {
-		return 0, m.deleteStaleNodesError
-	}
-	return m.deleteStaleNodesCount, nil
-}
-
-func (m *mockStore) ListNodes(ctx context.Context, limit int, offset int) ([]*models.Node, error) {
-	return nil, nil
-}
-
-func (m *mockStore) Ping(ctx context.Context) error {
-	return nil
-}
-
-func (m *mockStore) Close() error {
-	return nil
-}
 
 func createTestConfig() *config.Config {
 	cfg := &config.Config{}
@@ -139,9 +30,21 @@ func createTestSchedulerConfig() *SchedulerConfig {
 	}
 }
 
+func newTestCB() *circuit_breaker.CircuitBreaker {
+	log := logger.New("test", &config.Config{LogLevel: "fatal"})
+	return circuit_breaker.NewCircuitBreaker(circuit_breaker.Config{
+		Name:            "test-cb",
+		MaxFailures:     2,
+		Timeout:         50 * time.Millisecond,
+		ResetTimeout:    50 * time.Millisecond,
+		HalfOpenMaxReqs: 1,
+		Log:             log,
+	})
+}
+
 func TestNewScheduler(t *testing.T) {
 	t.Run("creates scheduler with correct number of nodes", func(t *testing.T) {
-		store := &mockStore{}
+		store := &testutils.MockStore{}
 		log := logger.New("test", createTestConfig())
 		config := createTestSchedulerConfig()
 
@@ -173,7 +76,7 @@ func TestNewScheduler(t *testing.T) {
 	})
 
 	t.Run("creates scheduler with zero nodes", func(t *testing.T) {
-		store := &mockStore{}
+		store := &testutils.MockStore{}
 		log := logger.New("test", createTestConfig())
 		config := createTestSchedulerConfig()
 
@@ -191,7 +94,7 @@ func TestNewScheduler(t *testing.T) {
 
 func TestSchedulerStartStop(t *testing.T) {
 	t.Run("starts and stops scheduler successfully", func(t *testing.T) {
-		store := &mockStore{markPendingCount: 5}
+		store := &testutils.MockStore{MarkPendingCount: 5}
 		log := logger.New("test", createTestConfig())
 		config := createTestSchedulerConfig()
 
@@ -243,7 +146,7 @@ func TestSchedulerStartStop(t *testing.T) {
 	})
 
 	t.Run("scheduler nodes mark messages as ready", func(t *testing.T) {
-		store := &mockStore{markPendingCount: 10}
+		store := &testutils.MockStore{MarkPendingCount: 10}
 		log := logger.New("test", createTestConfig())
 		config := createTestSchedulerConfig()
 
@@ -256,9 +159,9 @@ func TestSchedulerStartStop(t *testing.T) {
 		scheduler.Stop()
 
 		// Check that MarkPendingMessagesAsReady was called
-		store.mu.Lock()
-		calls := store.markPendingCalls
-		store.mu.Unlock()
+		store.Mu.Lock()
+		calls := store.MarkPendingCalls
+		store.Mu.Unlock()
 
 		if calls < 2 {
 			t.Errorf("Expected at least 2 calls to MarkPendingMessagesAsReady, got %d", calls)
@@ -279,7 +182,7 @@ func TestSchedulerStartStop(t *testing.T) {
 
 func TestSchedulerHealth(t *testing.T) {
 	t.Run("reports healthy status when running normally", func(t *testing.T) {
-		store := &mockStore{markPendingCount: 5}
+		store := &testutils.MockStore{MarkPendingCount: 5}
 		log := logger.New("test", createTestConfig())
 		config := createTestSchedulerConfig()
 
@@ -316,7 +219,7 @@ func TestSchedulerHealth(t *testing.T) {
 	})
 
 	t.Run("reports unhealthy status when not running", func(t *testing.T) {
-		store := &mockStore{}
+		store := &testutils.MockStore{}
 		log := logger.New("test", createTestConfig())
 		config := createTestSchedulerConfig()
 
@@ -339,7 +242,7 @@ func TestSchedulerHealth(t *testing.T) {
 	})
 
 	t.Run("reports degraded status when delayed", func(t *testing.T) {
-		store := &mockStore{markPendingCount: 5}
+		store := &testutils.MockStore{MarkPendingCount: 5}
 		log := logger.New("test", createTestConfig())
 
 		// Use a very long interval so nodes appear delayed
@@ -379,14 +282,14 @@ func TestSchedulerHealth(t *testing.T) {
 
 func TestMarkPendingMessagesReady(t *testing.T) {
 	t.Run("successfully marks messages", func(t *testing.T) {
-		store := &mockStore{markPendingCount: 15}
+		store := &testutils.MockStore{MarkPendingCount: 15}
 		log := logger.New("test", createTestConfig())
 		config := createTestSchedulerConfig()
 
 		scheduler := NewScheduler(config, store, 1, 0, log)
 		node := scheduler.schedulerNodes[0]
 
-		scheduler.markPendingMessagesReady(node)
+		scheduler.markPendingMessagesReady(context.Background(), node)
 
 		node.mu.RLock()
 		messagesMarked := node.messagesMarked
@@ -396,9 +299,9 @@ func TestMarkPendingMessagesReady(t *testing.T) {
 			t.Errorf("Expected 15 messages marked, got %d", messagesMarked)
 		}
 
-		store.mu.Lock()
-		calls := store.markPendingCalls
-		store.mu.Unlock()
+		store.Mu.Lock()
+		calls := store.MarkPendingCalls
+		store.Mu.Unlock()
 
 		if calls != 1 {
 			t.Errorf("Expected 1 call to MarkPendingMessagesAsReady, got %d", calls)
@@ -406,8 +309,8 @@ func TestMarkPendingMessagesReady(t *testing.T) {
 	})
 
 	t.Run("handles errors gracefully", func(t *testing.T) {
-		store := &mockStore{
-			markPendingError: errors.New("database error"),
+		store := &testutils.MockStore{
+			MarkPendingError: errors.New("database error"),
 		}
 		log := logger.New("test", createTestConfig())
 		config := createTestSchedulerConfig()
@@ -415,7 +318,7 @@ func TestMarkPendingMessagesReady(t *testing.T) {
 		scheduler := NewScheduler(config, store, 1, 0, log)
 		node := scheduler.schedulerNodes[0]
 
-		scheduler.markPendingMessagesReady(node)
+		scheduler.markPendingMessagesReady(context.Background(), node)
 
 		node.mu.RLock()
 		messagesMarked := node.messagesMarked
@@ -430,7 +333,7 @@ func TestMarkPendingMessagesReady(t *testing.T) {
 
 func TestJanitorOperations(t *testing.T) {
 	t.Run("cleans up stale messages", func(t *testing.T) {
-		store := &mockStore{markStaleCount: 8}
+		store := &testutils.MockStore{MarkStaleCount: 8}
 		log := logger.New("test", createTestConfig())
 		config := createTestSchedulerConfig()
 
@@ -447,9 +350,9 @@ func TestJanitorOperations(t *testing.T) {
 			t.Errorf("Expected 8 messages cleaned up, got %d", messagesCleanedUp)
 		}
 
-		store.mu.Lock()
-		calls := store.markStaleCalls
-		store.mu.Unlock()
+		store.Mu.Lock()
+		calls := store.MarkStaleCalls
+		store.Mu.Unlock()
 
 		if calls != 1 {
 			t.Errorf("Expected 1 call to MarkStaleAcquiredMessagesAsReady, got %d", calls)
@@ -457,7 +360,7 @@ func TestJanitorOperations(t *testing.T) {
 	})
 
 	t.Run("cleans up stale nodes", func(t *testing.T) {
-		store := &mockStore{deleteStaleNodesCount: 3}
+		store := &testutils.MockStore{DeleteStaleNodesCount: 3}
 		log := logger.New("test", createTestConfig())
 		config := createTestSchedulerConfig()
 
@@ -474,9 +377,9 @@ func TestJanitorOperations(t *testing.T) {
 			t.Errorf("Expected 3 nodes cleaned up, got %d", nodesCleanedUp)
 		}
 
-		store.mu.Lock()
-		calls := store.deleteStaleNodesCalls
-		store.mu.Unlock()
+		store.Mu.Lock()
+		calls := store.DeleteStaleNodesCalls
+		store.Mu.Unlock()
 
 		if calls != 1 {
 			t.Errorf("Expected 1 call to DeleteStaleNodes, got %d", calls)
@@ -484,7 +387,7 @@ func TestJanitorOperations(t *testing.T) {
 	})
 
 	t.Run("cleans up failed messages", func(t *testing.T) {
-		store := &mockStore{cleanFailedMessagesCount: 5}
+		store := &testutils.MockStore{CleanFailedMessagesCount: 5}
 		log := logger.New("test", createTestConfig())
 		config := createTestSchedulerConfig()
 
@@ -493,9 +396,9 @@ func TestJanitorOperations(t *testing.T) {
 
 		scheduler.cleanupFailedMessages(node)
 
-		store.mu.Lock()
-		calls := store.cleanFailedMessagesCalls
-		store.mu.Unlock()
+		store.Mu.Lock()
+		calls := store.CleanFailedMessagesCalls
+		store.Mu.Unlock()
 
 		if calls != 1 {
 			t.Errorf("Expected 1 call to CleanFailedMessages, got %d", calls)
@@ -503,9 +406,9 @@ func TestJanitorOperations(t *testing.T) {
 	})
 
 	t.Run("handles cleanup errors gracefully", func(t *testing.T) {
-		store := &mockStore{
-			markStaleError:        errors.New("stale message error"),
-			deleteStaleNodesError: errors.New("stale node error"),
+		store := &testutils.MockStore{
+			MarkStaleError:        errors.New("stale message error"),
+			DeleteStaleNodesError: errors.New("stale node error"),
 		}
 		log := logger.New("test", createTestConfig())
 		config := createTestSchedulerConfig()
@@ -526,9 +429,9 @@ func TestJanitorOperations(t *testing.T) {
 	})
 
 	t.Run("janitor runs periodic cleanup", func(t *testing.T) {
-		store := &mockStore{
-			markStaleCount:        2,
-			deleteStaleNodesCount: 1,
+		store := &testutils.MockStore{
+			MarkStaleCount:        2,
+			DeleteStaleNodesCount: 1,
 		}
 		log := logger.New("test", createTestConfig())
 		config := createTestSchedulerConfig()
@@ -541,10 +444,10 @@ func TestJanitorOperations(t *testing.T) {
 
 		scheduler.Stop()
 
-		store.mu.Lock()
-		staleCalls := store.markStaleCalls
-		nodesCalls := store.deleteStaleNodesCalls
-		store.mu.Unlock()
+		store.Mu.Lock()
+		staleCalls := store.MarkStaleCalls
+		nodesCalls := store.DeleteStaleNodesCalls
+		store.Mu.Unlock()
 
 		if staleCalls < 2 {
 			t.Errorf("Expected at least 2 calls to MarkStaleAcquiredMessagesAsReady, got %d", staleCalls)
@@ -559,9 +462,9 @@ func TestJanitorOperations(t *testing.T) {
 func TestJanitorHealth(t *testing.T) {
 	t.Run("reports degraded status on error", func(t *testing.T) {
 		// Set errors on both cleanup operations so error persists
-		store := &mockStore{
-			markStaleError:        errors.New("cleanup failed"),
-			deleteStaleNodesError: errors.New("node cleanup failed"),
+		store := &testutils.MockStore{
+			MarkStaleError:        errors.New("cleanup failed"),
+			DeleteStaleNodesError: errors.New("node cleanup failed"),
 		}
 		log := logger.New("test", createTestConfig())
 		config := createTestSchedulerConfig()
@@ -594,4 +497,145 @@ func TestJanitorHealth(t *testing.T) {
 
 		scheduler.Stop()
 	})
+}
+
+func TestCircuitBreaker_ClosesAfterSuccess(t *testing.T) {
+	cb := newTestCB()
+
+	err := cb.Execute(context.Background(), func(ctx context.Context) error {
+		return nil
+	})
+
+	if err != nil {
+		t.Fatalf("expected success, got %v", err)
+	}
+
+	if cb.GetState() != circuit_breaker.StateClosed {
+		t.Fatalf("expected closed state")
+	}
+}
+
+func TestCircuitBreaker_OpensAfterFailures(t *testing.T) {
+	cb := newTestCB()
+
+	// Cause 2 failures
+	cb.Execute(context.Background(), func(ctx context.Context) error { return errors.New("fail") })
+	cb.Execute(context.Background(), func(ctx context.Context) error { return errors.New("fail") })
+
+	if cb.GetState() != circuit_breaker.StateOpen {
+		t.Fatalf("expected open state after failures")
+	}
+}
+
+func TestCircuitBreaker_BlocksWhenOpen(t *testing.T) {
+	cb := newTestCB()
+
+	// open it
+	cb.Execute(context.Background(), func(ctx context.Context) error { return errors.New("fail") })
+	cb.Execute(context.Background(), func(ctx context.Context) error { return errors.New("fail") })
+
+	err := cb.Execute(context.Background(), func(ctx context.Context) error { return nil })
+	if !errors.Is(err, circuit_breaker.ErrCircuitOpen) {
+		t.Fatalf("expected ErrCircuitOpen, got %v", err)
+	}
+}
+func TestCircuitBreaker_EntersHalfOpenAndClosesImmediately(t *testing.T) {
+	cb := newTestCB()
+
+	// Force failures
+	cb.Execute(context.Background(), func(ctx context.Context) error { return errors.New("fail") })
+	cb.Execute(context.Background(), func(ctx context.Context) error { return errors.New("fail") })
+
+	if cb.GetState() != circuit_breaker.StateOpen {
+		t.Fatalf("expected open")
+	}
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	transitionedToHalfOpen := false
+
+	for time.Now().Before(deadline) {
+
+		_ = cb.Execute(context.Background(), func(ctx context.Context) error { return nil })
+
+		metrics := cb.GetMetrics()
+
+		if metrics.TotalCircuitCloses > 0 {
+			transitionedToHalfOpen = true
+			break
+		}
+
+		time.Sleep(1 * time.Millisecond)
+	}
+
+	if !transitionedToHalfOpen {
+		t.Fatalf("expected half-open→closed transition, but never occurred")
+	}
+
+	if cb.GetState() != circuit_breaker.StateClosed {
+		t.Fatalf("expected final state to be closed, got %s", cb.GetState())
+	}
+}
+
+func TestCircuitBreaker_ClosesAfterHalfOpenSuccess(t *testing.T) {
+	cb := newTestCB()
+
+	// Fail until breaker is open
+	cb.Execute(context.Background(), func(ctx context.Context) error { return errors.New("fail") })
+	cb.Execute(context.Background(), func(ctx context.Context) error { return errors.New("fail") })
+
+	if cb.GetState() != circuit_breaker.StateOpen {
+		t.Fatalf("expected open")
+	}
+
+	// Poll until breaker closes (HalfOpen → Closed)
+	deadline := time.Now().Add(500 * time.Millisecond)
+	transitioned := false
+
+	for time.Now().Before(deadline) {
+		_ = cb.Execute(context.Background(), func(ctx context.Context) error { return nil })
+
+		metrics := cb.GetMetrics()
+
+		if metrics.TotalCircuitCloses > 0 {
+			transitioned = true
+			break
+		}
+
+		time.Sleep(1 * time.Millisecond)
+	}
+
+	if !transitioned {
+		t.Fatalf("expected transition half-open → closed based on success probe")
+	}
+
+	if cb.GetState() != circuit_breaker.StateClosed {
+		t.Fatalf("expected final state closed, got %s", cb.GetState())
+	}
+}
+
+func TestCircuitBreaker_TimeoutTriggersFailure(t *testing.T) {
+	cb := newTestCB()
+
+	err := cb.Execute(context.Background(), func(ctx context.Context) error {
+		<-ctx.Done() // deterministic timeout
+		return nil
+	})
+
+	if !errors.Is(err, circuit_breaker.ErrTimeout) {
+		t.Fatalf("expected timeout error, got %v", err)
+	}
+
+	metrics := cb.GetMetrics()
+
+	if metrics.TotalTimeouts != 1 {
+		t.Fatalf("expected 1 timeout, got %d", metrics.TotalTimeouts)
+	}
+
+	if metrics.TotalFailures != 1 {
+		t.Fatalf("expected 1 failure, got %d", metrics.TotalFailures)
+	}
+
+	if cb.GetState() != circuit_breaker.StateClosed {
+		t.Fatalf("expected closed state after a single timeout, got %s", cb.GetState())
+	}
 }

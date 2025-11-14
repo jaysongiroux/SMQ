@@ -76,6 +76,12 @@ type Config struct {
 	// Internal tracking for config path
 	ConfigPath string
 	NodeID     string
+
+	// Circuit breaker configuration
+	CBMaxFailures   int
+	CBTimeout       int
+	CBResetTimeout  int
+	HalfOpenMaxReqs int
 }
 
 // define all the config keys as constants
@@ -121,6 +127,10 @@ const (
 	BufferAdaptiveTuneThresholdKey   = "buffer_adaptive_tune_threshold"
 	BufferAdaptiveMinSizeKey         = "buffer_adaptive_min_size"
 	BufferAdaptiveKey                = "buffer_adaptive"
+	CBMaxFailuresKey                 = "cb_max_failures"
+	CBTimeoutKey                     = "cb_timeout_ms"
+	CBResetTimeoutKey                = "cb_reset_timeout_ms"
+	HalfOpenMaxReqsKey               = "half_open_max_reqs"
 )
 
 const (
@@ -190,6 +200,10 @@ type JSONConfig struct {
 	BufferAdaptiveTuneThreshold   int    `json:"buffer_adaptive_tune_threshold"`
 	BufferAdaptiveMinSize         int    `json:"buffer_adaptive_min_size"`
 	BufferAdaptive                bool   `json:"buffer_adaptive"`
+	CBMaxFailures                 int    `json:"cb_max_failures"`
+	CBTimeout                     int    `json:"cb_timeout_ms"`
+	CBResetTimeout                int    `json:"cb_reset_timeout_ms"`
+	HalfOpenMaxReqs               int    `json:"half_open_max_reqs"`
 }
 
 // NewConfig creates a new config instance by loading config.json and applying environment overrides
@@ -277,7 +291,16 @@ func NewConfig() (*Config, error) {
 		// Internal tracking for config path
 		ConfigPath: configPath,
 		NodeID:     nodeID,
+
+		// Circuit breaker
+		CBMaxFailures:   jsonCfg.CBMaxFailures,
+		CBTimeout:       jsonCfg.CBTimeout,
+		CBResetTimeout:  jsonCfg.CBResetTimeout,
+		HalfOpenMaxReqs: jsonCfg.HalfOpenMaxReqs,
 	}
+
+	// print config
+	fmt.Printf("Config loaded: %+v\n", jsonCfg)
 
 	// Apply environment variable overrides
 	cfg.applyEnvOverrides(&jsonCfg)
@@ -370,6 +393,10 @@ func (c *Config) applyEnvOverrides(jsonCfg *JSONConfig) {
 	overrideInt(&c.CockroachMaxIdleConns, CockroachMaxIdleConnsKey, jsonCfg.CockroachMaxIdleConns)
 	overrideString(&c.NodeID, NodeIDKey, jsonCfg.NodeID)
 	overrideString(&c.ApiKey, ApiKeyKey, jsonCfg.ApiKey)
+	overrideInt(&c.CBMaxFailures, CBMaxFailuresKey, jsonCfg.CBMaxFailures)
+	overrideInt(&c.CBTimeout, CBTimeoutKey, jsonCfg.CBTimeout)
+	overrideInt(&c.CBResetTimeout, CBResetTimeoutKey, jsonCfg.CBResetTimeout)
+	overrideInt(&c.HalfOpenMaxReqs, HalfOpenMaxReqsKey, jsonCfg.HalfOpenMaxReqs)
 
 	// API key is env-only
 	if apiKey := os.Getenv("api_key"); apiKey != "" {
@@ -505,8 +532,7 @@ func (c *Config) Validate() error {
 	maxAdaptiveTuneThreshold := 1000000
 	minAdaptiveMinSize := 10
 	maxAdaptiveMinSize := 1000000
-	// only validate if adaptive is enabled
-	if c.BufferAdaptive {
+	if c.BufferAdaptive { // only validate if adaptive is enabled
 		if err := ValidateRange(BufferAdaptiveMaxSizeKey, c.BufferAdaptiveMaxSize, minAdaptiveMaxSize, maxAdaptiveMaxSize); err != nil {
 			return err
 		}
@@ -550,6 +576,28 @@ func (c *Config) Validate() error {
 	minSchedulerMaxMessagesPerPoll := 100
 	maxSchedulerMaxMessagesPerPoll := 1000000
 	if err := ValidateRange(SchedulerMaxMessagesPerPollKey, c.SchedulerMaxMessagesPerPoll, minSchedulerMaxMessagesPerPoll, maxSchedulerMaxMessagesPerPoll); err != nil {
+		return err
+	}
+
+	// validate circuit breaker
+	minCBMaxFailures := 1
+	maxCBMaxFailures := 1000000
+	if err := ValidateRange(CBMaxFailuresKey, c.CBMaxFailures, minCBMaxFailures, maxCBMaxFailures); err != nil {
+		return err
+	}
+	minCBTimeout := 1000    // 1 second
+	maxCBTimeout := 1000000 // 100 seconds
+	if err := ValidateRange(CBTimeoutKey, c.CBTimeout, minCBTimeout, maxCBTimeout); err != nil {
+		return err
+	}
+	minCBResetTimeout := 1000    // 1 second
+	maxCBResetTimeout := 1000000 // 100 seconds
+	if err := ValidateRange(CBResetTimeoutKey, c.CBResetTimeout, minCBResetTimeout, maxCBResetTimeout); err != nil {
+		return err
+	}
+	minHalfOpenMaxReqs := 1
+	maxHalfOpenMaxReqs := 1000000
+	if err := ValidateRange(HalfOpenMaxReqsKey, c.HalfOpenMaxReqs, minHalfOpenMaxReqs, maxHalfOpenMaxReqs); err != nil {
 		return err
 	}
 

@@ -11,6 +11,7 @@ import (
 	"github.com/jaysongiroux/smq/internal/config"
 	"github.com/jaysongiroux/smq/internal/logger"
 	"github.com/jaysongiroux/smq/internal/models"
+	"github.com/jaysongiroux/smq/internal/testutils"
 )
 
 // mockBuffer implements buffer.Buffer interface for testing
@@ -54,87 +55,6 @@ func (m *mockBuffer) Health() *models.ComponentHealth {
 	}
 }
 
-// mockStore implements db.Store interface for testing
-type mockStore struct {
-	deleteError error
-	deleteCalls int
-	mu          sync.Mutex
-}
-
-func (m *mockStore) BatchCreateMessages(ctx context.Context, msgs []*models.Message) error {
-	return nil
-}
-
-func (m *mockStore) DeleteMessage(ctx context.Context, id uuid.UUID) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.deleteCalls++
-	if m.deleteError != nil {
-		return m.deleteError
-	}
-	return nil
-}
-
-func (m *mockStore) UpdateMessageStatus(ctx context.Context, id uuid.UUID, status models.MessageStatus) error {
-	return nil
-}
-
-func (m *mockStore) MarkPendingMessagesAsReady(ctx context.Context, currentTime time.Time) (int64, error) {
-	return 0, nil
-}
-
-func (m *mockStore) MarkStaleAcquiredMessagesAsReady(ctx context.Context, staleThreshold time.Duration) (int64, error) {
-	return 0, nil
-}
-
-func (m *mockStore) AcquireNextMessage(ctx context.Context, channel string, max int) ([]*models.Message, error) {
-	return nil, nil
-}
-
-func (m *mockStore) AckMessage(ctx context.Context, ids []uuid.UUID) error {
-	return nil
-}
-
-func (m *mockStore) NackMessage(ctx context.Context, ids []uuid.UUID) error {
-	return nil
-}
-
-func (m *mockStore) CleanFailedMessages(ctx context.Context) (int64, error) {
-	return 0, nil
-}
-
-func (m *mockStore) ListChannels(ctx context.Context, limit int, offset int) ([]*models.Channel, error) {
-	return nil, nil
-}
-
-func (m *mockStore) RegisterNode(ctx context.Context, node *models.Node) error {
-	return nil
-}
-
-func (m *mockStore) UpdateNode(ctx context.Context, nodeID string, status string, metadata map[string]interface{}) error {
-	return nil
-}
-
-func (m *mockStore) DeleteNode(ctx context.Context, nodeID string) error {
-	return nil
-}
-
-func (m *mockStore) DeleteStaleNodes(ctx context.Context, staleThreshold time.Duration) (int64, error) {
-	return 0, nil
-}
-
-func (m *mockStore) ListNodes(ctx context.Context, limit int, offset int) ([]*models.Node, error) {
-	return nil, nil
-}
-
-func (m *mockStore) Ping(ctx context.Context) error {
-	return nil
-}
-
-func (m *mockStore) Close() error {
-	return nil
-}
-
 func createTestConfig() *config.Config {
 	cfg := &config.Config{}
 	cfg.LogLevel = "info"
@@ -144,7 +64,7 @@ func createTestConfig() *config.Config {
 
 func TestNewProducer(t *testing.T) {
 	t.Run("creates producer with correct configuration", func(t *testing.T) {
-		store := &mockStore{}
+		store := &testutils.MockStore{}
 		buf := &mockBuffer{}
 		log := logger.New("test", createTestConfig())
 		maxPayloadSizeKB := 10240
@@ -167,7 +87,7 @@ func TestNewProducer(t *testing.T) {
 
 func TestProducerStartStop(t *testing.T) {
 	t.Run("starts and stops producer", func(t *testing.T) {
-		store := &mockStore{}
+		store := &testutils.MockStore{}
 		buf := &mockBuffer{}
 		log := logger.New("test", createTestConfig())
 
@@ -203,7 +123,7 @@ func TestProducerStartStop(t *testing.T) {
 
 func TestProducerHealth(t *testing.T) {
 	t.Run("reports healthy status when running", func(t *testing.T) {
-		store := &mockStore{}
+		store := &testutils.MockStore{}
 		buf := &mockBuffer{}
 		log := logger.New("test", createTestConfig())
 
@@ -227,7 +147,7 @@ func TestProducerHealth(t *testing.T) {
 	})
 
 	t.Run("reports unhealthy status when stopped", func(t *testing.T) {
-		store := &mockStore{}
+		store := &testutils.MockStore{}
 		buf := &mockBuffer{}
 		log := logger.New("test", createTestConfig())
 
@@ -242,7 +162,7 @@ func TestProducerHealth(t *testing.T) {
 	})
 
 	t.Run("includes metrics in health metadata", func(t *testing.T) {
-		store := &mockStore{}
+		store := &testutils.MockStore{}
 		buf := &mockBuffer{}
 		log := logger.New("test", createTestConfig())
 
@@ -280,7 +200,7 @@ func TestProducerHealth(t *testing.T) {
 
 func TestCreateMessage(t *testing.T) {
 	t.Run("successfully creates message", func(t *testing.T) {
-		store := &mockStore{}
+		store := &testutils.MockStore{}
 		buf := &mockBuffer{}
 		log := logger.New("test", createTestConfig())
 
@@ -323,7 +243,7 @@ func TestCreateMessage(t *testing.T) {
 	})
 
 	t.Run("fails when channel is empty", func(t *testing.T) {
-		store := &mockStore{}
+		store := &testutils.MockStore{}
 		buf := &mockBuffer{}
 		log := logger.New("test", createTestConfig())
 
@@ -355,7 +275,7 @@ func TestCreateMessage(t *testing.T) {
 	})
 
 	t.Run("fails when payload is empty", func(t *testing.T) {
-		store := &mockStore{}
+		store := &testutils.MockStore{}
 		buf := &mockBuffer{}
 		log := logger.New("test", createTestConfig())
 
@@ -379,7 +299,7 @@ func TestCreateMessage(t *testing.T) {
 	})
 
 	t.Run("fails when payload is not valid JSON", func(t *testing.T) {
-		store := &mockStore{}
+		store := &testutils.MockStore{}
 		buf := &mockBuffer{}
 		log := logger.New("test", createTestConfig())
 
@@ -403,7 +323,7 @@ func TestCreateMessage(t *testing.T) {
 	})
 
 	t.Run("fails when scheduled_at is not far enough in future", func(t *testing.T) {
-		store := &mockStore{}
+		store := &testutils.MockStore{}
 		buf := &mockBuffer{}
 		log := logger.New("test", createTestConfig())
 
@@ -423,7 +343,7 @@ func TestCreateMessage(t *testing.T) {
 	})
 
 	t.Run("fails when payload exceeds max size", func(t *testing.T) {
-		store := &mockStore{}
+		store := &testutils.MockStore{}
 		buf := &mockBuffer{}
 		log := logger.New("test", createTestConfig())
 
@@ -451,7 +371,7 @@ func TestCreateMessage(t *testing.T) {
 	})
 
 	t.Run("fails when buffer returns error", func(t *testing.T) {
-		store := &mockStore{}
+		store := &testutils.MockStore{}
 		buf := &mockBuffer{
 			addError: errors.New("buffer full"),
 		}
@@ -481,7 +401,7 @@ func TestCreateMessage(t *testing.T) {
 	})
 
 	t.Run("sets status to READY for immediate messages", func(t *testing.T) {
-		store := &mockStore{}
+		store := &testutils.MockStore{}
 		buf := &mockBuffer{}
 		log := logger.New("test", createTestConfig())
 
@@ -509,7 +429,7 @@ func TestCreateMessage(t *testing.T) {
 	})
 
 	t.Run("clears last error on successful create", func(t *testing.T) {
-		store := &mockStore{}
+		store := &testutils.MockStore{}
 		buf := &mockBuffer{}
 		log := logger.New("test", createTestConfig())
 
@@ -544,7 +464,7 @@ func TestCreateMessage(t *testing.T) {
 
 func TestDeleteMessage(t *testing.T) {
 	t.Run("successfully deletes message", func(t *testing.T) {
-		store := &mockStore{}
+		store := &testutils.MockStore{}
 		buf := &mockBuffer{}
 		log := logger.New("test", createTestConfig())
 
@@ -567,9 +487,9 @@ func TestDeleteMessage(t *testing.T) {
 			t.Errorf("Expected messagesDeleted 1, got %d", messagesDeleted)
 		}
 
-		store.mu.Lock()
-		deleteCalls := store.deleteCalls
-		store.mu.Unlock()
+		store.Mu.Lock()
+		deleteCalls := store.DeleteCalls
+		store.Mu.Unlock()
 
 		if deleteCalls != 1 {
 			t.Errorf("Expected 1 delete call to store, got %d", deleteCalls)
@@ -577,8 +497,8 @@ func TestDeleteMessage(t *testing.T) {
 	})
 
 	t.Run("fails when store returns error", func(t *testing.T) {
-		store := &mockStore{
-			deleteError: errors.New("database error"),
+		store := &testutils.MockStore{
+			DeleteError: errors.New("database error"),
 		}
 		buf := &mockBuffer{}
 		log := logger.New("test", createTestConfig())
@@ -603,7 +523,7 @@ func TestDeleteMessage(t *testing.T) {
 	})
 
 	t.Run("clears last error on successful delete", func(t *testing.T) {
-		store := &mockStore{}
+		store := &testutils.MockStore{}
 		buf := &mockBuffer{}
 		log := logger.New("test", createTestConfig())
 
@@ -632,7 +552,7 @@ func TestDeleteMessage(t *testing.T) {
 	})
 
 	t.Run("updates last active time", func(t *testing.T) {
-		store := &mockStore{}
+		store := &testutils.MockStore{}
 		buf := &mockBuffer{}
 		log := logger.New("test", createTestConfig())
 

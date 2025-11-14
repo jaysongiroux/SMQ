@@ -33,5 +33,9 @@
   "buffer_adaptive": true,
   "buffer_adaptive_max_size": 1000,
   "buffer_adaptive_tune_threshold": 5,
-  "buffer_adaptive_min_size": 10
+  "buffer_adaptive_min_size": 10,
+  "cb_max_failures": 5,
+  "cb_timeout_ms": 10000,
+  "cb_reset_timeout_ms": 10000,
+  "half_open_max_reqs": 1
 }

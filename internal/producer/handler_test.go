@@ -17,7 +17,7 @@ import (
 
 func TestNewHandler(t *testing.T) {
 	t.Run("creates handler successfully", func(t *testing.T) {
-		store := &testutils.MockStoreHandler{}
+		store := &testutils.MockStore{}
 		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 
@@ -36,7 +36,7 @@ func TestNewHandler(t *testing.T) {
 
 func TestRegisterRoutes(t *testing.T) {
 	t.Run("registers routes correctly", func(t *testing.T) {
-		store := &testutils.MockStoreHandler{}
+		store := &testutils.MockStore{}
 		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 
@@ -70,7 +70,7 @@ func TestRegisterRoutes(t *testing.T) {
 
 func TestHandlerCreateMessage(t *testing.T) {
 	t.Run("successfully creates message", func(t *testing.T) {
-		store := &testutils.MockStoreHandler{}
+		store := &testutils.MockStore{}
 		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 
@@ -107,7 +107,7 @@ func TestHandlerCreateMessage(t *testing.T) {
 	})
 
 	t.Run("fails with invalid JSON", func(t *testing.T) {
-		store := &testutils.MockStoreHandler{}
+		store := &testutils.MockStore{}
 		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 
@@ -132,7 +132,7 @@ func TestHandlerCreateMessage(t *testing.T) {
 	})
 
 	t.Run("fails with empty channel", func(t *testing.T) {
-		store := &testutils.MockStoreHandler{}
+		store := &testutils.MockStore{}
 		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 
@@ -164,7 +164,7 @@ func TestHandlerCreateMessage(t *testing.T) {
 	})
 
 	t.Run("fails when buffer is full", func(t *testing.T) {
-		store := &testutils.MockStoreHandler{}
+		store := &testutils.MockStore{}
 		buf := &testutils.MockBufferHandler{
 			AddError: errors.New("buffer full"),
 		}
@@ -191,7 +191,7 @@ func TestHandlerCreateMessage(t *testing.T) {
 	})
 
 	t.Run("sets correct content type", func(t *testing.T) {
-		store := &testutils.MockStoreHandler{}
+		store := &testutils.MockStore{}
 		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 
@@ -219,7 +219,7 @@ func TestHandlerCreateMessage(t *testing.T) {
 
 func TestHandlerDeleteMessage(t *testing.T) {
 	t.Run("successfully deletes message", func(t *testing.T) {
-		store := &testutils.MockStoreHandler{}
+		store := &testutils.MockStore{}
 		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 
@@ -250,7 +250,7 @@ func TestHandlerDeleteMessage(t *testing.T) {
 	})
 
 	t.Run("fails with invalid UUID", func(t *testing.T) {
-		store := &testutils.MockStoreHandler{}
+		store := &testutils.MockStore{}
 		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 
@@ -275,7 +275,7 @@ func TestHandlerDeleteMessage(t *testing.T) {
 	})
 
 	t.Run("returns 404 when message not found", func(t *testing.T) {
-		store := &testutils.MockStoreHandler{
+		store := &testutils.MockStore{
 			DeleteError: errors.New("no rows affected"),
 		}
 		buf := &testutils.MockBufferHandler{}
@@ -303,7 +303,7 @@ func TestHandlerDeleteMessage(t *testing.T) {
 	})
 
 	t.Run("returns 500 for other database errors", func(t *testing.T) {
-		store := &testutils.MockStoreHandler{
+		store := &testutils.MockStore{
 			DeleteError: errors.New("database connection lost"),
 		}
 		buf := &testutils.MockBufferHandler{}
@@ -331,7 +331,7 @@ func TestHandlerDeleteMessage(t *testing.T) {
 	})
 
 	t.Run("sets correct content type", func(t *testing.T) {
-		store := &testutils.MockStoreHandler{}
+		store := &testutils.MockStore{}
 		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 
@@ -353,7 +353,7 @@ func TestHandlerDeleteMessage(t *testing.T) {
 
 func TestHandleMessage(t *testing.T) {
 	t.Run("returns 404 for non-exact path", func(t *testing.T) {
-		store := &testutils.MockStoreHandler{}
+		store := &testutils.MockStore{}
 		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 
@@ -371,7 +371,7 @@ func TestHandleMessage(t *testing.T) {
 	})
 
 	t.Run("returns 405 for unsupported methods", func(t *testing.T) {
-		store := &testutils.MockStoreHandler{}
+		store := &testutils.MockStore{}
 		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 
@@ -395,7 +395,7 @@ func TestHandleMessage(t *testing.T) {
 
 func TestHandleMessageWithID(t *testing.T) {
 	t.Run("returns 404 for empty ID", func(t *testing.T) {
-		store := &testutils.MockStoreHandler{}
+		store := &testutils.MockStore{}
 		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 
@@ -413,7 +413,7 @@ func TestHandleMessageWithID(t *testing.T) {
 	})
 
 	t.Run("returns 405 for unsupported methods", func(t *testing.T) {
-		store := &testutils.MockStoreHandler{}
+		store := &testutils.MockStore{}
 		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 
@@ -438,7 +438,7 @@ func TestHandleMessageWithID(t *testing.T) {
 
 func TestHandlerIntegration(t *testing.T) {
 	t.Run("full create and delete workflow", func(t *testing.T) {
-		store := &testutils.MockStoreHandler{}
+		store := &testutils.MockStore{}
 		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 

@@ -96,6 +96,10 @@ func main() {
 		JanitorInterval:        time.Duration(cfg.SchedulerJanitorIntervalMs) * time.Millisecond,
 		JanitorJitterPercent:   cfg.SchedulerJanitorJitterPercent,
 		StaleNodeThreshold:     time.Duration(cfg.HealthCheckIntervalMs) * time.Millisecond * 2, // Remove nodes after 2x health check interval
+		CBMaxFailures:          cfg.CBMaxFailures,
+		CBTimeout:              time.Duration(cfg.CBTimeout) * time.Millisecond,
+		CBResetTimeout:         time.Duration(cfg.CBResetTimeout) * time.Millisecond,
+		HalfOpenMaxReqs:        cfg.HalfOpenMaxReqs,
 	}
 	schedulerLog := log.WithService("scheduler")
 	msgScheduler := scheduler.NewScheduler(schedulerConfig, store, cfg.NumSchedulerNodes, cfg.NumSchedulerJanitorNodes, schedulerLog)

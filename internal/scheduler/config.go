@@ -22,5 +22,16 @@ type SchedulerConfig struct {
 
 	// StaleNodeThreshold is how long a node can be offline before being removed
 	StaleNodeThreshold time.Duration
-}
 
+	// CBMaxFailures is the number of failures before the circuit breaker opens
+	CBMaxFailures int
+
+	// CBTimeout is the timeout for the circuit breaker
+	CBTimeout time.Duration
+
+	// CBResetTimeout is the time to wait before the circuit breaker closes
+	CBResetTimeout time.Duration
+
+	// HalfOpenMaxReqs is the number of requests to allow in half-open state
+	HalfOpenMaxReqs int
+}
