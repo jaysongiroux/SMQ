@@ -2,8 +2,12 @@ package producer
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"sync"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,47 +17,6 @@ import (
 	"github.com/jaysongiroux/smq/internal/models"
 	"github.com/jaysongiroux/smq/internal/testutils"
 )
-
-// mockBuffer implements buffer.Buffer interface for testing
-type mockBuffer struct {
-	addError error
-	messages []*models.Message
-	mu       sync.Mutex
-}
-
-func (m *mockBuffer) Start() {
-	// No-op for tests
-}
-
-func (m *mockBuffer) Stop() error {
-	return nil
-}
-
-func (m *mockBuffer) Add(msg *models.Message) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.addError != nil {
-		return m.addError
-	}
-	m.messages = append(m.messages, msg)
-	return nil
-}
-
-func (m *mockBuffer) Flush() error {
-	return nil
-}
-
-func (m *mockBuffer) Size() int {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return len(m.messages)
-}
-
-func (m *mockBuffer) Health() *models.ComponentHealth {
-	return &models.ComponentHealth{
-		Status: models.HealthStatusHealthy,
-	}
-}
 
 func createTestConfig() *config.Config {
 	cfg := &config.Config{}
@@ -65,7 +28,7 @@ func createTestConfig() *config.Config {
 func TestNewProducer(t *testing.T) {
 	t.Run("creates producer with correct configuration", func(t *testing.T) {
 		store := &testutils.MockStore{}
-		buf := &mockBuffer{}
+		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 		maxPayloadSizeKB := 10240
 
@@ -88,7 +51,7 @@ func TestNewProducer(t *testing.T) {
 func TestProducerStartStop(t *testing.T) {
 	t.Run("starts and stops producer", func(t *testing.T) {
 		store := &testutils.MockStore{}
-		buf := &mockBuffer{}
+		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 
 		producer := NewProducer(store, buf, log, 10240, createTestConfig())
@@ -124,7 +87,7 @@ func TestProducerStartStop(t *testing.T) {
 func TestProducerHealth(t *testing.T) {
 	t.Run("reports healthy status when running", func(t *testing.T) {
 		store := &testutils.MockStore{}
-		buf := &mockBuffer{}
+		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 
 		producer := NewProducer(store, buf, log, 10240, createTestConfig())
@@ -148,7 +111,7 @@ func TestProducerHealth(t *testing.T) {
 
 	t.Run("reports unhealthy status when stopped", func(t *testing.T) {
 		store := &testutils.MockStore{}
-		buf := &mockBuffer{}
+		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 
 		producer := NewProducer(store, buf, log, 10240, createTestConfig())
@@ -163,7 +126,7 @@ func TestProducerHealth(t *testing.T) {
 
 	t.Run("includes metrics in health metadata", func(t *testing.T) {
 		store := &testutils.MockStore{}
-		buf := &mockBuffer{}
+		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 
 		producer := NewProducer(store, buf, log, 10240, createTestConfig())
@@ -201,7 +164,7 @@ func TestProducerHealth(t *testing.T) {
 func TestCreateMessage(t *testing.T) {
 	t.Run("successfully creates message", func(t *testing.T) {
 		store := &testutils.MockStore{}
-		buf := &mockBuffer{}
+		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 
 		producer := NewProducer(store, buf, log, 10240, createTestConfig())
@@ -233,9 +196,9 @@ func TestCreateMessage(t *testing.T) {
 			t.Errorf("Expected messagesCreated 1, got %d", messagesCreated)
 		}
 
-		buf.mu.Lock()
-		bufferSize := len(buf.messages)
-		buf.mu.Unlock()
+		buf.Mu.Lock()
+		bufferSize := len(buf.Messages)
+		buf.Mu.Unlock()
 
 		if bufferSize != 1 {
 			t.Errorf("Expected 1 message in buffer, got %d", bufferSize)
@@ -244,7 +207,7 @@ func TestCreateMessage(t *testing.T) {
 
 	t.Run("fails when channel is empty", func(t *testing.T) {
 		store := &testutils.MockStore{}
-		buf := &mockBuffer{}
+		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 
 		producer := NewProducer(store, buf, log, 10240, createTestConfig())
@@ -276,7 +239,7 @@ func TestCreateMessage(t *testing.T) {
 
 	t.Run("fails when payload is empty", func(t *testing.T) {
 		store := &testutils.MockStore{}
-		buf := &mockBuffer{}
+		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 
 		producer := NewProducer(store, buf, log, 10240, createTestConfig())
@@ -300,7 +263,7 @@ func TestCreateMessage(t *testing.T) {
 
 	t.Run("fails when payload is not valid JSON", func(t *testing.T) {
 		store := &testutils.MockStore{}
-		buf := &mockBuffer{}
+		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 
 		producer := NewProducer(store, buf, log, 10240, createTestConfig())
@@ -324,7 +287,7 @@ func TestCreateMessage(t *testing.T) {
 
 	t.Run("fails when scheduled_at is not far enough in future", func(t *testing.T) {
 		store := &testutils.MockStore{}
-		buf := &mockBuffer{}
+		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 
 		producer := NewProducer(store, buf, log, 10240, createTestConfig())
@@ -344,7 +307,7 @@ func TestCreateMessage(t *testing.T) {
 
 	t.Run("fails when payload exceeds max size", func(t *testing.T) {
 		store := &testutils.MockStore{}
-		buf := &mockBuffer{}
+		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 
 		producer := NewProducer(store, buf, log, 1, createTestConfig()) // 1 KB limit
@@ -372,8 +335,8 @@ func TestCreateMessage(t *testing.T) {
 
 	t.Run("fails when buffer returns error", func(t *testing.T) {
 		store := &testutils.MockStore{}
-		buf := &mockBuffer{
-			addError: errors.New("buffer full"),
+		buf := &testutils.MockBufferHandler{
+			AddError: errors.New("buffer full"),
 		}
 		log := logger.New("test", createTestConfig())
 
@@ -402,7 +365,7 @@ func TestCreateMessage(t *testing.T) {
 
 	t.Run("sets status to READY for immediate messages", func(t *testing.T) {
 		store := &testutils.MockStore{}
-		buf := &mockBuffer{}
+		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 
 		producer := NewProducer(store, buf, log, 10240, createTestConfig())
@@ -419,9 +382,9 @@ func TestCreateMessage(t *testing.T) {
 			t.Fatalf("Expected no error, got: %v", err)
 		}
 
-		buf.mu.Lock()
-		message := buf.messages[0]
-		buf.mu.Unlock()
+		buf.Mu.Lock()
+		message := buf.Messages[0]
+		buf.Mu.Unlock()
 
 		if message.Status != models.StatusPending {
 			t.Errorf("Expected status PENDING, got %s", message.Status)
@@ -430,7 +393,7 @@ func TestCreateMessage(t *testing.T) {
 
 	t.Run("clears last error on successful create", func(t *testing.T) {
 		store := &testutils.MockStore{}
-		buf := &mockBuffer{}
+		buf := &testutils.MockBufferHandler{}
 		log := logger.New("test", createTestConfig())
 
 		producer := NewProducer(store, buf, log, 10240, createTestConfig())
@@ -461,11 +424,125 @@ func TestCreateMessage(t *testing.T) {
 		}
 	})
 }
-
 func TestDeleteMessage(t *testing.T) {
-	t.Run("successfully deletes message", func(t *testing.T) {
+	t.Run("successfully deletes message from buffer", func(t *testing.T) {
 		store := &testutils.MockStore{}
-		buf := &mockBuffer{}
+		buf := &testutils.MockBufferHandler{}
+		log := logger.New("test", createTestConfig())
+
+		producer := NewProducer(store, buf, log, 10240, createTestConfig())
+		producer.Start()
+
+		ctx := context.Background()
+		messageID := uuid.New()
+
+		// Configure buffer to successfully remove message
+		buf.RemoveError = nil
+		buf.RemoveFound = true
+
+		err := producer.DeleteMessage(ctx, messageID)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		producer.mu.RLock()
+		messagesDeleted := producer.messagesDeleted
+		producer.mu.RUnlock()
+
+		if messagesDeleted != 1 {
+			t.Errorf("Expected messagesDeleted 1, got %d", messagesDeleted)
+		}
+
+		// Verify buffer.Remove was called
+		buf.Mu.Lock()
+		removeCalls := buf.RemoveCalls
+		buf.Mu.Unlock()
+
+		if removeCalls != 1 {
+			t.Errorf("Expected 1 remove call to buffer, got %d", removeCalls)
+		}
+
+		// Verify store.DeleteMessage was NOT called (removed from buffer)
+		store.Mu.Lock()
+		deleteCalls := store.DeleteCalls
+		store.Mu.Unlock()
+
+		if deleteCalls != 0 {
+			t.Errorf("Expected 0 delete calls to store when removed from buffer, got %d", deleteCalls)
+		}
+	})
+
+	// t.Run("returns 404 when message not found", func(t *testing.T) {
+	// 	store := &testutils.MockStore{
+	// 		DeleteNotFound: true, // Simulate message not found
+	// 	}
+	// 	buf := &testutils.MockBufferHandler{
+	// 		RemoveError: errors.New("not in buffer"),
+	// 		RemoveFound: false,
+	// 	}
+	// 	log := logger.New("test", createTestConfig())
+
+	// 	ctx := context.Background()
+	// 	handler := NewProducer(store, buf, log, 10240, createTestConfig())
+
+	// 	messageID := uuid.New()
+	// 	req := httptest.NewRequest("DELETE", fmt.Sprintf("/v1/message/%s", messageID), nil)
+	// 	req.Header.Set("api-key", "test-key")
+	// 	w := httptest.NewRecorder()
+
+	// 	handler.DeleteMessage(ctx, messageID)
+
+	// 	if w.Code != http.StatusNotFound {
+	// 		t.Errorf("Expected status 404, got %d", w.Code)
+	// 	}
+
+	// 	var response map[string]interface{}
+	// 	json.NewDecoder(w.Body).Decode(&response)
+
+	// 	if response["error"] == nil {
+	// 		t.Error("Expected error message in response")
+	// 	}
+	// })
+
+	t.Run("returns 500 for other database errors", func(t *testing.T) {
+		store := &testutils.MockStore{
+			DeleteError: errors.New("database connection failed"),
+		}
+		buf := &testutils.MockBufferHandler{
+			RemoveError: errors.New("not in buffer"),
+			RemoveFound: false,
+		}
+		log := logger.New("test", createTestConfig())
+
+		producer := NewProducer(store, buf, log, 10240, createTestConfig())
+		handler := NewHandler(producer, log) // Create HTTP handler
+
+		messageID := uuid.New()
+		req := httptest.NewRequest("DELETE", fmt.Sprintf("/v1/message/%s", messageID), nil)
+		req.Header.Set("api-key", "test-key")
+		w := httptest.NewRecorder()
+
+		// Call the HTTP handler method, not the producer method
+		handler.DeleteMessage(w, req) // This should be the HTTP handler's DeleteMessage
+
+		if w.Code != http.StatusInternalServerError {
+			t.Errorf("Expected status 500, got %d", w.Code)
+		}
+
+		var response map[string]interface{}
+		json.NewDecoder(w.Body).Decode(&response)
+
+		if response["error"] == nil {
+			t.Error("Expected error message in response")
+		}
+	})
+
+	t.Run("deletes from database when not in buffer", func(t *testing.T) {
+		store := &testutils.MockStore{}
+		buf := &testutils.MockBufferHandler{
+			RemoveError: errors.New("message not found in buffer"),
+			RemoveFound: false,
+		}
 		log := logger.New("test", createTestConfig())
 
 		producer := NewProducer(store, buf, log, 10240, createTestConfig())
@@ -487,20 +564,33 @@ func TestDeleteMessage(t *testing.T) {
 			t.Errorf("Expected messagesDeleted 1, got %d", messagesDeleted)
 		}
 
+		// Verify buffer.Remove was attempted
+		buf.Mu.Lock()
+		removeCalls := buf.RemoveCalls
+		buf.Mu.Unlock()
+
+		if removeCalls != 1 {
+			t.Errorf("Expected 1 remove call to buffer, got %d", removeCalls)
+		}
+
+		// Verify store.DeleteMessage was called (fallback)
 		store.Mu.Lock()
 		deleteCalls := store.DeleteCalls
 		store.Mu.Unlock()
 
 		if deleteCalls != 1 {
-			t.Errorf("Expected 1 delete call to store, got %d", deleteCalls)
+			t.Errorf("Expected 1 delete call to store as fallback, got %d", deleteCalls)
 		}
 	})
 
-	t.Run("fails when store returns error", func(t *testing.T) {
+	t.Run("fails when buffer fails and store returns error", func(t *testing.T) {
 		store := &testutils.MockStore{
 			DeleteError: errors.New("database error"),
 		}
-		buf := &mockBuffer{}
+		buf := &testutils.MockBufferHandler{
+			RemoveError: errors.New("buffer error"),
+			RemoveFound: false,
+		}
 		log := logger.New("test", createTestConfig())
 
 		producer := NewProducer(store, buf, log, 10240, createTestConfig())
@@ -510,21 +600,69 @@ func TestDeleteMessage(t *testing.T) {
 
 		err := producer.DeleteMessage(ctx, messageID)
 		if err == nil {
-			t.Error("Expected error when store delete fails")
+			t.Error("Expected error when both buffer and store delete fail")
+		}
+
+		if !strings.Contains(err.Error(), "failed to delete message") {
+			t.Errorf("Expected 'failed to delete message' error, got: %v", err)
 		}
 
 		producer.mu.RLock()
 		deletionErrors := producer.deletionErrors
+		lastError := producer.lastError
 		producer.mu.RUnlock()
 
+		// deletionErrors SHOULD be incremented when delete fails
 		if deletionErrors != 1 {
 			t.Errorf("Expected deletionErrors 1, got %d", deletionErrors)
 		}
+
+		// lastError should contain the database error
+		if lastError == nil {
+			t.Error("Expected lastError to be set")
+		} else if !strings.Contains(lastError.Error(), "database error") {
+			t.Errorf("Expected lastError to contain 'database error', got: %v", lastError)
+		}
 	})
 
-	t.Run("clears last error on successful delete", func(t *testing.T) {
+	t.Run("clears last error on successful delete from buffer", func(t *testing.T) {
 		store := &testutils.MockStore{}
-		buf := &mockBuffer{}
+		buf := &testutils.MockBufferHandler{
+			RemoveError: nil,
+			RemoveFound: true,
+		}
+		log := logger.New("test", createTestConfig())
+
+		producer := NewProducer(store, buf, log, 10240, createTestConfig())
+
+		// Set a previous error
+		producer.mu.Lock()
+		producer.lastError = errors.New("previous error")
+		producer.mu.Unlock()
+
+		ctx := context.Background()
+		messageID := uuid.New()
+
+		err := producer.DeleteMessage(ctx, messageID)
+		if err != nil {
+			t.Fatalf("Expected no error, got: %v", err)
+		}
+
+		producer.mu.RLock()
+		lastError := producer.lastError
+		producer.mu.RUnlock()
+
+		if lastError != nil {
+			t.Errorf("Expected lastError to be cleared, got: %v", lastError)
+		}
+	})
+
+	t.Run("clears last error on successful delete from database", func(t *testing.T) {
+		store := &testutils.MockStore{}
+		buf := &testutils.MockBufferHandler{
+			RemoveError: errors.New("not in buffer"),
+			RemoveFound: false,
+		}
 		log := logger.New("test", createTestConfig())
 
 		producer := NewProducer(store, buf, log, 10240, createTestConfig())
@@ -553,7 +691,10 @@ func TestDeleteMessage(t *testing.T) {
 
 	t.Run("updates last active time", func(t *testing.T) {
 		store := &testutils.MockStore{}
-		buf := &mockBuffer{}
+		buf := &testutils.MockBufferHandler{
+			RemoveError: nil,
+			RemoveFound: true,
+		}
 		log := logger.New("test", createTestConfig())
 
 		producer := NewProducer(store, buf, log, 10240, createTestConfig())

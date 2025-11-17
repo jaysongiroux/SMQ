@@ -3,6 +3,7 @@ package buffer
 import (
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jaysongiroux/smq/internal/models"
 )
 
@@ -17,6 +18,9 @@ type Buffer interface {
 
 	// Add adds a message to the buffer
 	Add(msg *models.Message) error
+
+	// Remove removes a message from the buffer - returns true or false if the message was removed
+	Remove(id uuid.UUID) (bool, error)
 
 	// Health returns the current health status of the buffer
 	Health() *models.ComponentHealth

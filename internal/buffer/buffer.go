@@ -2,9 +2,11 @@ package buffer
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jaysongiroux/smq/internal/logger"
 	"github.com/jaysongiroux/smq/internal/models"
 )
@@ -146,4 +148,19 @@ func FlushTicker(b *GenericBuffer, flushInterval time.Duration, adaptiveEnabled 
 			return
 		}
 	}
+}
+
+func RemoveMessage(id uuid.UUID, b *GenericBuffer, log *logger.Logger) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	// remove message based on id from buffer
+	for i, msg := range *b.batch {
+		if msg.ID == id {
+			*b.batch = append((*b.batch)[:i], (*b.batch)[i+1:]...)
+			log.Info("Message %s removed from buffer", id)
+			return nil
+		}
+	}
+	log.Error("Message %s not found in buffer", id)
+	return errors.New("message not found in buffer")
 }

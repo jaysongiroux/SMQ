@@ -2,10 +2,12 @@ package buffer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jaysongiroux/smq/internal/db"
 	"github.com/jaysongiroux/smq/internal/logger"
 	"github.com/jaysongiroux/smq/internal/models"
@@ -64,6 +66,22 @@ func NewMemoryBuffer(config *Config, store db.Store, log *logger.Logger) *Memory
 	}
 
 	return b
+}
+
+func (b *MemoryBuffer) Remove(id uuid.UUID) (bool, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	// remove message from batch
+	for i, msg := range b.batch {
+		if msg.ID == id {
+			b.batch = append(b.batch[:i], b.batch[i+1:]...)
+			b.log.Info("Message %s removed from memory buffer", id)
+			return true, nil
+		}
+	}
+	b.log.Error("Message %s not found in memory buffer", id)
+	return false, errors.New("message not found in memory buffer")
 }
 
 // Start begins the buffer workers

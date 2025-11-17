@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jaysongiroux/smq/internal/db"
 	"github.com/jaysongiroux/smq/internal/logger"
 	"github.com/jaysongiroux/smq/internal/models"
@@ -123,7 +125,20 @@ func NewDiskBuffer(config *Config, store db.Store, log *logger.Logger) (*DiskBuf
 	return b, nil
 }
 
-// Start begins the buffer workers
+func (b *DiskBuffer) Remove(id uuid.UUID) (bool, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for i, msg := range b.batch {
+		if msg.ID == id {
+			b.batch = append(b.batch[:i], b.batch[i+1:]...)
+			b.log.Info("Message %s removed from disk buffer", id)
+			return true, nil
+		}
+	}
+	b.log.Error("Message %s not found in disk buffer", id)
+	return false, errors.New("message not found in disk buffer")
+}
+
 func (b *DiskBuffer) Start() {
 	b.mu.Lock()
 	b.isRunning = true
@@ -136,7 +151,6 @@ func (b *DiskBuffer) Start() {
 	b.log.Info("Starting disk buffer with config: max_size=%d, flush_interval=%v, worker_count=%d, wal_path=%s, adaptive=%s",
 		b.config.MaxSize, b.config.FlushInterval, b.config.WorkerCount, b.walPath, adaptiveStr)
 
-	// Start flush workers
 	for i := 0; i < b.config.WorkerCount; i++ {
 		b.wg.Add(1)
 		go b.flushWorker(i)

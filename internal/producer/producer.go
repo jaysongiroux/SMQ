@@ -200,7 +200,6 @@ func (p *Producer) CreateMessage(ctx context.Context, req *models.CreateMessageR
 }
 
 // DeleteMessage deletes a message by ID from the database
-// TODO: Remove messages from the buffer (buffer messages will be flushed normally)
 func (p *Producer) DeleteMessage(ctx context.Context, messageID uuid.UUID) error {
 	p.mu.Lock()
 	p.lastActive = time.Now()
@@ -208,13 +207,31 @@ func (p *Producer) DeleteMessage(ctx context.Context, messageID uuid.UUID) error
 
 	p.log.Debug("Deleting message %s", messageID)
 
-	// Delete from database
+	// Try to remove from buffer first
+	removed, _ := p.buffer.Remove(messageID)
+
+	if removed {
+		// Successfully removed from buffer
+		p.mu.Lock()
+		p.messagesDeleted++
+		p.lastError = nil
+		p.mu.Unlock()
+
+		p.log.Info("Message %s deleted successfully from buffer", messageID)
+		return nil
+	}
+
+	// Not in buffer (or buffer error), try database
+	p.log.Debug("Message %s not in buffer, attempting database deletion", messageID)
+
 	if err := p.store.DeleteMessage(ctx, messageID); err != nil {
-		p.log.Error("Failed to delete message %s: %v", messageID, err)
+		p.log.Error("Failed to delete message %s from database: %v", messageID, err)
+
 		p.mu.Lock()
 		p.deletionErrors++
 		p.lastError = err
 		p.mu.Unlock()
+
 		return fmt.Errorf("failed to delete message: %w", err)
 	}
 
@@ -224,7 +241,7 @@ func (p *Producer) DeleteMessage(ctx context.Context, messageID uuid.UUID) error
 	p.lastError = nil
 	p.mu.Unlock()
 
-	p.log.Info("Message %s deleted successfully", messageID)
+	p.log.Info("Message %s deleted successfully from database", messageID)
 
 	return nil
 }

@@ -2,6 +2,7 @@ package testutils
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -28,19 +29,26 @@ type MockStore struct {
 	DeleteError              error
 	CleanFailedMessagesCalls int
 	Mu                       sync.Mutex
+	DeleteNotFound           bool
 }
 
 func (m *MockStore) BatchCreateMessages(ctx context.Context, msgs []*models.Message) error {
 	return nil
 }
 
-func (m *MockStore) DeleteMessage(ctx context.Context, id uuid.UUID) error {
+func (m *MockStore) DeleteMessage(ctx context.Context, messageID uuid.UUID) error {
 	m.Mu.Lock()
-	defer m.Mu.Unlock()
 	m.DeleteCalls++
+	m.Mu.Unlock()
+
+	if m.DeleteNotFound {
+		return errors.New("message not found")
+	}
+
 	if m.DeleteError != nil {
 		return m.DeleteError
 	}
+
 	return nil
 }
 
