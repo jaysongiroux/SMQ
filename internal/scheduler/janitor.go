@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -60,7 +61,7 @@ func (s *Scheduler) genericJanitorCircuitBreaker(node *JanitorNode, fn func(node
 	})
 
 	if err != nil {
-		if err == circuit_breaker.ErrCircuitOpen {
+		if errors.Is(err, circuit_breaker.ErrCircuitOpen) {
 			s.log.Debug("Janitor node %d: circuit breaker is open, skipping poll", node.id)
 			return
 		}

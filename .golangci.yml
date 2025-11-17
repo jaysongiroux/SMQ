@@ -11,6 +11,7 @@ linters:
         linters:
           - errcheck
           - gosec
+          - dupl
 
   enable:
     - errcheck

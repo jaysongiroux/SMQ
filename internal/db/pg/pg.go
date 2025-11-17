@@ -378,9 +378,6 @@ const (
 	// Number of fields in the message table
 	paramsPerMessage    = 7
 	maxMessagesPerQuery = maxParamsPerQuery / paramsPerMessage
-
-	// Use COPY for very large batches
-	copyThreshold = 5000
 )
 
 // BatchCreateMessages inserts multiple messages using PostgreSQL COPY protocol
@@ -549,7 +546,10 @@ func BatchCreateMessagesCopy(
 		)
 		if err != nil {
 			log.Error("Failed to add message %s to COPY batch: %v", msg.ID, err)
-			stmt.Close()
+			err = stmt.Close()
+			if err != nil {
+				log.Error("Failed to close statement: %v", err)
+			}
 			return fmt.Errorf("failed to add message to COPY: %w", err)
 		}
 	}

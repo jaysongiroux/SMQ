@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -233,12 +234,15 @@ func (s *Scheduler) genericSchedulerCircuitBreaker(node *SchedulerNode, fn func(
 	s.log.Debug("Scheduler node %d checking for pending messages", node.id)
 
 	err := node.circuitBreaker.Execute(s.ctx, func(ctx context.Context) error {
-		fn(ctx, node)
+		err := fn(ctx, node)
+		if err != nil {
+			return err
+		}
 		return nil
 	})
 
 	if err != nil {
-		if err == circuit_breaker.ErrCircuitOpen {
+		if errors.Is(err, circuit_breaker.ErrCircuitOpen) {
 			s.log.Debug("Scheduler node %d: circuit breaker is open, skipping poll", node.id)
 			return
 		}
