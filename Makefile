@@ -17,7 +17,7 @@ clean:
 
 # run tests
 test:
-	go test ./...
+	go test -race ./...
 
 # run tests with coverage
 test-coverage:

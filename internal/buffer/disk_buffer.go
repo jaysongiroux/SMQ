@@ -327,6 +327,7 @@ func (b *DiskBuffer) Add(msg *models.Message) error {
 	if err == nil {
 		b.walSize = stat.Size()
 	}
+	walSize := b.walSize
 	b.walMu.Unlock()
 
 	// Add to in-memory batch
@@ -344,7 +345,7 @@ func (b *DiskBuffer) Add(msg *models.Message) error {
 	b.mu.Unlock()
 
 	b.log.Debug("Message %s added to disk buffer (channel: %s, wal_size: %d bytes, batch: %d/%d)",
-		msg.ID, msg.Channel, b.walSize, batchSize, currentMaxSize)
+		msg.ID, msg.Channel, walSize, batchSize, currentMaxSize)
 
 	if shouldFlush {
 		b.log.Debug("Batch size reached max capacity (%d) - triggering flush", batchSize)
