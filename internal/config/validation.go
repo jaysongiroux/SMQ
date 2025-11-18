@@ -82,7 +82,12 @@ func ValidateApiKey(name, value string) error {
 
 	minApiKeyLength := 12
 	if len(value) < minApiKeyLength {
-		return fmt.Errorf("%s must be at least %d characters long. %s", name, minApiKeyLength, genericErrorMessage)
+		return fmt.Errorf(
+			"%s must be at least %d characters long. %s",
+			name,
+			minApiKeyLength,
+			genericErrorMessage,
+		)
 	}
 
 	// check variety of letters and numbers

@@ -30,6 +30,9 @@ func NewBuffer(cfg *config.Config, store db.Store, log *logger.Logger) (Buffer, 
 	case "disk":
 		return NewDiskBuffer(bufferConfig, store, log)
 	default:
-		return nil, fmt.Errorf("unsupported buffer type: %s (supported: memory, disk)", cfg.BufferType)
+		return nil, fmt.Errorf(
+			"unsupported buffer type: %s (supported: memory, disk)",
+			cfg.BufferType,
+		)
 	}
 }

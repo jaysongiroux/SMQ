@@ -73,9 +73,15 @@ CREATE INDEX IF NOT EXISTS idx_nodes_last_seen ON nodes(last_seen);
 
 func InformUserAboutPartitions(log *logger.Logger) {
 	log.Info("--------------------------------")
-	log.Info("You must manually create partitions for each region and attach them to the corresponding tablespace.")
+	log.Info(
+		"You must manually create partitions for each region and attach them to the corresponding tablespace.",
+	)
 	log.Info("Example:")
-	log.Info("CREATE TABLE messages_us_east_1 PARTITION OF messages FOR VALUES IN ('us-east-1') TABLESPACE us_east_1_ts;")
-	log.Info("CREATE TABLE messages_us_west_1 PARTITION OF messages FOR VALUES IN ('us-west-1') TABLESPACE us_west_1_ts;")
+	log.Info(
+		"CREATE TABLE messages_us_east_1 PARTITION OF messages FOR VALUES IN ('us-east-1') TABLESPACE us_east_1_ts;",
+	)
+	log.Info(
+		"CREATE TABLE messages_us_west_1 PARTITION OF messages FOR VALUES IN ('us-west-1') TABLESPACE us_west_1_ts;",
+	)
 	log.Info("--------------------------------")
 }

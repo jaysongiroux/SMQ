@@ -23,7 +23,12 @@ type ConnectionPool struct {
 	maxIdleConns int
 }
 
-func NewConnectionPool(driver string, dsn string, maxConns int, log *logger.Logger) (*ConnectionPool, error) {
+func NewConnectionPool(
+	driver string,
+	dsn string,
+	maxConns int,
+	log *logger.Logger,
+) (*ConnectionPool, error) {
 	db, err := sqlx.Connect(driver, dsn)
 	if err != nil {
 		log.Error("Failed to connect to database: %v", err)
@@ -40,7 +45,11 @@ func NewConnectionPool(driver string, dsn string, maxConns int, log *logger.Logg
 		return nil, fmt.Errorf("failed to ping database: %w", err)
 	}
 
-	log.Info("Database connection pool established (max_conns=%d, max_idle_conns=%d)", maxConns, maxConns/2)
+	log.Info(
+		"Database connection pool established (max_conns=%d, max_idle_conns=%d)",
+		maxConns,
+		maxConns/2,
+	)
 
 	return &ConnectionPool{
 		db:           db,
@@ -57,7 +66,12 @@ func (p *ConnectionPool) Close() error {
 	return p.db.Close()
 }
 
-func DeleteStaleNodes(ctx context.Context, staleThreshold time.Duration, log *logger.Logger, db *sqlx.DB) (int64, error) {
+func DeleteStaleNodes(
+	ctx context.Context,
+	staleThreshold time.Duration,
+	log *logger.Logger,
+	db *sqlx.DB,
+) (int64, error) {
 	// Calculate the cutoff time
 	cutoffTime := time.Now().Add(-staleThreshold)
 
@@ -77,7 +91,13 @@ func DeleteStaleNodes(ctx context.Context, staleThreshold time.Duration, log *lo
 	return rowsAffected, nil
 }
 
-func ListNodes(ctx context.Context, limit int, offset int, log *logger.Logger, db *sqlx.DB) ([]*models.Node, error) {
+func ListNodes(
+	ctx context.Context,
+	limit int,
+	offset int,
+	log *logger.Logger,
+	db *sqlx.DB,
+) ([]*models.Node, error) {
 	// Apply sensible defaults and bounds
 	if limit <= 0 {
 		limit = 100 // Default page size
@@ -161,7 +181,14 @@ func DeleteNode(ctx context.Context, nodeID string, log *logger.Logger, db *sqlx
 	return nil
 }
 
-func UpdateNode(ctx context.Context, nodeID string, status string, metadata map[string]interface{}, log *logger.Logger, db *sqlx.DB) error {
+func UpdateNode(
+	ctx context.Context,
+	nodeID string,
+	status string,
+	metadata map[string]interface{},
+	log *logger.Logger,
+	db *sqlx.DB,
+) error {
 	// Marshal metadata to JSONB
 	var metadataJSON []byte
 	var err error
@@ -235,7 +262,14 @@ func RegisterNode(ctx context.Context, node *models.Node, log *logger.Logger, db
 	return nil
 }
 
-func ListChannels(ctx context.Context, limit int, offset int, log *logger.Logger, db *sqlx.DB, includeFollowerRead bool) ([]*models.Channel, error) {
+func ListChannels(
+	ctx context.Context,
+	limit int,
+	offset int,
+	log *logger.Logger,
+	db *sqlx.DB,
+	includeFollowerRead bool,
+) ([]*models.Channel, error) {
 	// Apply sensible defaults and bounds
 	if limit <= 0 {
 		limit = 100 // Default page size
@@ -295,7 +329,13 @@ func ListChannels(ctx context.Context, limit int, offset int, log *logger.Logger
 	return channels, nil
 }
 
-func NackMessage(ctx context.Context, ids []uuid.UUID, log *logger.Logger, db *sqlx.DB, maxRetries int) error {
+func NackMessage(
+	ctx context.Context,
+	ids []uuid.UUID,
+	log *logger.Logger,
+	db *sqlx.DB,
+	maxRetries int,
+) error {
 	if len(ids) == 0 {
 		return nil // Nothing to do
 	}
@@ -447,7 +487,12 @@ func BatchCreateMessagesInsert(
 }
 
 // insertChunk inserts a chunk of messages using multi-row VALUES
-func insertChunk(ctx context.Context, tx *sqlx.Tx, msgs []*models.Message, log *logger.Logger) error {
+func insertChunk(
+	ctx context.Context,
+	tx *sqlx.Tx,
+	msgs []*models.Message,
+	log *logger.Logger,
+) error {
 	if len(msgs) == 0 {
 		return nil
 	}
@@ -591,7 +636,13 @@ func DeleteMessage(ctx context.Context, id uuid.UUID, log *logger.Logger, db *sq
 	return nil
 }
 
-func UpdateMessageStatus(ctx context.Context, id uuid.UUID, status models.MessageStatus, log *logger.Logger, db *sqlx.DB) error {
+func UpdateMessageStatus(
+	ctx context.Context,
+	id uuid.UUID,
+	status models.MessageStatus,
+	log *logger.Logger,
+	db *sqlx.DB,
+) error {
 	query := `UPDATE messages SET status = $1 WHERE id = $2`
 
 	result, err := db.ExecContext(ctx, query, status, id)

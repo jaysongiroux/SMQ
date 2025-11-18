@@ -93,8 +93,13 @@ func NewCircuitBreaker(config Config) *CircuitBreaker {
 		lastStateChange: time.Now(),
 	}
 
-	config.Log.Info("Circuit breaker '%s' initialized: max_failures=%d, timeout=%v, reset_timeout=%v",
-		config.Name, config.MaxFailures, config.Timeout, config.ResetTimeout)
+	config.Log.Info(
+		"Circuit breaker '%s' initialized: max_failures=%d, timeout=%v, reset_timeout=%v",
+		config.Name,
+		config.MaxFailures,
+		config.Timeout,
+		config.ResetTimeout,
+	)
 
 	return cb
 }
@@ -130,7 +135,12 @@ func (cb *CircuitBreaker) Execute(ctx context.Context, fn func(context.Context) 
 	case <-timeoutCtx.Done():
 		// Timeout occurred
 		cb.onTimeout()
-		return fmt.Errorf("%w: %s circuit breaker timeout after %v", ErrTimeout, cb.name, cb.timeout)
+		return fmt.Errorf(
+			"%w: %s circuit breaker timeout after %v",
+			ErrTimeout,
+			cb.name,
+			cb.timeout,
+		)
 	}
 }
 
@@ -149,7 +159,10 @@ func (cb *CircuitBreaker) beforeRequest() error {
 	case StateOpen:
 		// Check if we should transition to half-open
 		if time.Since(cb.LastFailureTime) >= cb.ResetTimeout {
-			cb.log.Info("Circuit breaker '%s' transitioning to half-open (testing recovery)", cb.name)
+			cb.log.Info(
+				"Circuit breaker '%s' transitioning to half-open (testing recovery)",
+				cb.name,
+			)
 			cb.setState(StateHalfOpen)
 			cb.halfOpenReqs = 0
 			return nil

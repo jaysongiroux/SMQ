@@ -268,7 +268,11 @@ func (h *Handler) PollMessages(w http.ResponseWriter, r *http.Request) {
 			h.log.Warn("Invalid max parameter: %s", maxStr)
 			w.WriteHeader(http.StatusBadRequest)
 			err := json.NewEncoder(w).Encode(map[string]string{
-				"error": "Invalid max parameter - must be between " + strconv.Itoa(MinMaxMessages) + " and " + strconv.Itoa(MaxMaxMessages),
+				"error": "Invalid max parameter - must be between " + strconv.Itoa(
+					MinMaxMessages,
+				) + " and " + strconv.Itoa(
+					MaxMaxMessages,
+				),
 			})
 			if err != nil {
 				h.log.Error("Failed to encode response: %v", err)
@@ -372,7 +376,11 @@ func (h *Handler) NackAckMessage(w http.ResponseWriter, r *http.Request, purpose
 
 	// validate max batch size
 	if len(req.MessageIDs) > MaxBatchSize {
-		h.log.Warn("Nack/Ack request with too many message IDs: %d (max: %d)", len(req.MessageIDs), MaxBatchSize)
+		h.log.Warn(
+			"Nack/Ack request with too many message IDs: %d (max: %d)",
+			len(req.MessageIDs),
+			MaxBatchSize,
+		)
 		w.WriteHeader(http.StatusBadRequest)
 		err := json.NewEncoder(w).Encode(map[string]string{
 			"error": "Cannot ack more than 1000 messages at once",

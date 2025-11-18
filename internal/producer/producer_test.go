@@ -424,6 +424,7 @@ func TestCreateMessage(t *testing.T) {
 		}
 	})
 }
+
 func TestDeleteMessage(t *testing.T) {
 	t.Run("successfully deletes message from buffer", func(t *testing.T) {
 		store := &testutils.MockStore{}
@@ -472,37 +473,37 @@ func TestDeleteMessage(t *testing.T) {
 		}
 	})
 
-	// t.Run("returns 404 when message not found", func(t *testing.T) {
-	// 	store := &testutils.MockStore{
-	// 		DeleteNotFound: true, // Simulate message not found
-	// 	}
-	// 	buf := &testutils.MockBufferHandler{
-	// 		RemoveError: errors.New("not in buffer"),
-	// 		RemoveFound: false,
-	// 	}
-	// 	log := logger.New("test", createTestConfig())
+	t.Run("returns 404 when message not found", func(t *testing.T) {
+		store := &testutils.MockStore{
+			DeleteNotFound: true, // Simulate message not found
+		}
+		buf := &testutils.MockBufferHandler{
+			RemoveError: errors.New("not in buffer"),
+			RemoveFound: false,
+		}
+		log := logger.New("test", createTestConfig())
 
-	// 	ctx := context.Background()
-	// 	handler := NewProducer(store, buf, log, 10240, createTestConfig())
+		producer := NewProducer(store, buf, log, 10240, createTestConfig())
+		handler := NewHandler(producer, log)
 
-	// 	messageID := uuid.New()
-	// 	req := httptest.NewRequest("DELETE", fmt.Sprintf("/v1/message/%s", messageID), nil)
-	// 	req.Header.Set("api-key", "test-key")
-	// 	w := httptest.NewRecorder()
+		messageID := uuid.New()
+		req := httptest.NewRequest("DELETE", fmt.Sprintf("/v1/message/%s", messageID), nil)
+		req.Header.Set("api-key", "test-key")
+		w := httptest.NewRecorder()
 
-	// 	handler.DeleteMessage(ctx, messageID)
+		handler.DeleteMessage(w, req)
 
-	// 	if w.Code != http.StatusNotFound {
-	// 		t.Errorf("Expected status 404, got %d", w.Code)
-	// 	}
+		if w.Code != http.StatusNotFound {
+			t.Errorf("Expected status 404, got %d", w.Code)
+		}
 
-	// 	var response map[string]interface{}
-	// 	json.NewDecoder(w.Body).Decode(&response)
+		var response map[string]interface{}
+		json.NewDecoder(w.Body).Decode(&response)
 
-	// 	if response["error"] == nil {
-	// 		t.Error("Expected error message in response")
-	// 	}
-	// })
+		if response["error"] == nil {
+			t.Error("Expected error message in response")
+		}
+	})
 
 	t.Run("returns 500 for other database errors", func(t *testing.T) {
 		store := &testutils.MockStore{

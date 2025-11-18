@@ -65,13 +65,20 @@ func (s *PostgresStore) DeleteMessage(ctx context.Context, id uuid.UUID) error {
 }
 
 // UpdateMessageStatus updates the status of a message
-func (s *PostgresStore) UpdateMessageStatus(ctx context.Context, id uuid.UUID, status models.MessageStatus) error {
+func (s *PostgresStore) UpdateMessageStatus(
+	ctx context.Context,
+	id uuid.UUID,
+	status models.MessageStatus,
+) error {
 	return pg.UpdateMessageStatus(ctx, id, status, s.log, s.db)
 }
 
 // MarkPendingMessagesAsReady updates pending messages that are ready
 // Uses FOR UPDATE SKIP LOCKED for optimal concurrency with multiple scheduler nodes.
-func (s *PostgresStore) MarkPendingMessagesAsReady(ctx context.Context, currentTime time.Time) (int64, error) {
+func (s *PostgresStore) MarkPendingMessagesAsReady(
+	ctx context.Context,
+	currentTime time.Time,
+) (int64, error) {
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
 		s.log.Error("Failed to begin transaction for scheduler: %v", err)
@@ -99,7 +106,14 @@ func (s *PostgresStore) MarkPendingMessagesAsReady(ctx context.Context, currentT
 		WHERE messages.id = locked_messages.id
 	`
 
-	result, err := tx.ExecContext(ctx, query, models.StatusPending, currentTime, s.config.MaxMessagesPerPoll, models.StatusReady)
+	result, err := tx.ExecContext(
+		ctx,
+		query,
+		models.StatusPending,
+		currentTime,
+		s.config.MaxMessagesPerPoll,
+		models.StatusReady,
+	)
 	if err != nil {
 		s.log.Error("Failed to mark pending messages as ready: %v", err)
 		return 0, fmt.Errorf("failed to mark pending messages as ready: %w", err)
@@ -120,7 +134,10 @@ func (s *PostgresStore) MarkPendingMessagesAsReady(ctx context.Context, currentT
 
 // MarkStaleAcquiredMessagesAsReady marks stale acquired messages as ready
 // This is the janitor function that handles messages from dead consumers or messages that have not been delivered
-func (s *PostgresStore) MarkStaleAcquiredMessagesAsReady(ctx context.Context, staleThreshold time.Duration) (int64, error) {
+func (s *PostgresStore) MarkStaleAcquiredMessagesAsReady(
+	ctx context.Context,
+	staleThreshold time.Duration,
+) (int64, error) {
 	// Calculate the stale time threshold
 	staleTime := time.Now().Add(-staleThreshold)
 
@@ -133,7 +150,13 @@ func (s *PostgresStore) MarkStaleAcquiredMessagesAsReady(ctx context.Context, st
 		  AND acquired_at < $3
 	`
 
-	result, err := s.db.ExecContext(ctx, query, models.StatusReady, models.StatusAcquired, staleTime)
+	result, err := s.db.ExecContext(
+		ctx,
+		query,
+		models.StatusReady,
+		models.StatusAcquired,
+		staleTime,
+	)
 	if err != nil {
 		s.log.Error("Failed to mark stale acquired messages as ready: %v", err)
 		return 0, fmt.Errorf("failed to mark stale acquired messages as ready: %w", err)
@@ -149,7 +172,11 @@ func (s *PostgresStore) MarkStaleAcquiredMessagesAsReady(ctx context.Context, st
 
 // AcquireNextMessage atomically acquires the next ready message
 // Uses a Writable CTE with RETURNING for single-query atomicity and efficiency.
-func (s *PostgresStore) AcquireNextMessage(ctx context.Context, channel string, max int) ([]*models.Message, error) {
+func (s *PostgresStore) AcquireNextMessage(
+	ctx context.Context,
+	channel string,
+	max int,
+) ([]*models.Message, error) {
 	// Start a transaction for atomicity
 	// The transaction is still required for FOR UPDATE to hold locks.
 	tx, err := s.db.BeginTxx(ctx, nil)
@@ -254,7 +281,11 @@ func (s *PostgresStore) NackMessage(ctx context.Context, ids []uuid.UUID) error 
 
 // ListChannels retrieves all channels with pagination
 // Returns distinct channels that have messages in the database
-func (s *PostgresStore) ListChannels(ctx context.Context, limit int, offset int) ([]*models.Channel, error) {
+func (s *PostgresStore) ListChannels(
+	ctx context.Context,
+	limit int,
+	offset int,
+) ([]*models.Channel, error) {
 	return pg.ListChannels(ctx, limit, offset, s.log, s.db, false)
 }
 
@@ -264,7 +295,12 @@ func (s *PostgresStore) RegisterNode(ctx context.Context, node *models.Node) err
 }
 
 // UpdateNode updates a node's status and metadata
-func (s *PostgresStore) UpdateNode(ctx context.Context, nodeID string, status string, metadata map[string]interface{}) error {
+func (s *PostgresStore) UpdateNode(
+	ctx context.Context,
+	nodeID string,
+	status string,
+	metadata map[string]interface{},
+) error {
 	return pg.UpdateNode(ctx, nodeID, status, metadata, s.log, s.db)
 }
 
@@ -275,12 +311,19 @@ func (s *PostgresStore) DeleteNode(ctx context.Context, nodeID string) error {
 
 // DeleteStaleNodes removes nodes that haven't been seen within the staleThreshold duration
 // Returns the number of nodes deleted
-func (s *PostgresStore) DeleteStaleNodes(ctx context.Context, staleThreshold time.Duration) (int64, error) {
+func (s *PostgresStore) DeleteStaleNodes(
+	ctx context.Context,
+	staleThreshold time.Duration,
+) (int64, error) {
 	return pg.DeleteStaleNodes(ctx, staleThreshold, s.log, s.db)
 }
 
 // ListNodes retrieves all nodes in the cluster with pagination
-func (s *PostgresStore) ListNodes(ctx context.Context, limit int, offset int) ([]*models.Node, error) {
+func (s *PostgresStore) ListNodes(
+	ctx context.Context,
+	limit int,
+	offset int,
+) ([]*models.Node, error) {
 	return pg.ListNodes(ctx, limit, offset, s.log, s.db)
 }
 

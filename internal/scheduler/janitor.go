@@ -53,7 +53,11 @@ func (s *Scheduler) janitorLoop(node *JanitorNode) {
 
 // generic circuit breaker wrapper for janitor operations
 func (s *Scheduler) genericJanitorCircuitBreaker(node *JanitorNode, fn func(node *JanitorNode)) {
-	s.log.Debug("Janitor node %d checking for stale messages (threshold: %v)", node.id, s.config.StaleAcquiredThreshold)
+	s.log.Debug(
+		"Janitor node %d checking for stale messages (threshold: %v)",
+		node.id,
+		s.config.StaleAcquiredThreshold,
+	)
 
 	err := node.circuitBreaker.Execute(s.ctx, func(ctx context.Context) error {
 		fn(node)

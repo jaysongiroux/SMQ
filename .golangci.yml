@@ -4,6 +4,17 @@ run:
   timeout: 5m
   go: "1.23"
 
+formatters:
+  exclusions:
+    paths:
+      - .+_test.go
+      - .git/
+  enable:
+    - gofmt
+    - goimports
+    - golines
+    - gci
+  
 linters:
   exclusions:
     rules:

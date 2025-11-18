@@ -354,25 +354,57 @@ func (c *Config) applyEnvOverrides(jsonCfg *JSONConfig) {
 
 	// Apply overrides for all fields
 	overrideInt(&c.NumSchedulerNodes, NumSchedulerNodesKey, jsonCfg.NumSchedulerNodes)
-	overrideInt(&c.NumSchedulerJanitorNodes, NumSchedulerJanitorNodesKey, jsonCfg.NumSchedulerJanitorNodes)
-	overrideInt(&c.SchedulerPollIntervalMs, SchedulerPollIntervalKey, jsonCfg.SchedulerPollIntervalMs)
-	overrideInt(&c.SchedulerJanitorIntervalMs, SchedulerJanitorIntervalKey, jsonCfg.SchedulerJanitorIntervalMs)
-	overrideInt(&c.SchedulerMaxMessagesPerPoll, SchedulerMaxMessagesPerPollKey, jsonCfg.SchedulerMaxMessagesPerPoll)
-	overrideInt(&c.SchedulerPollJitterPercent, SchedulerPollJitterPercentKey, jsonCfg.SchedulerPollJitterPercent)
-	overrideInt(&c.SchedulerJanitorJitterPercent, SchedulerJanitorJitterPercentKey, jsonCfg.SchedulerJanitorJitterPercent)
+	overrideInt(
+		&c.NumSchedulerJanitorNodes,
+		NumSchedulerJanitorNodesKey,
+		jsonCfg.NumSchedulerJanitorNodes,
+	)
+	overrideInt(
+		&c.SchedulerPollIntervalMs,
+		SchedulerPollIntervalKey,
+		jsonCfg.SchedulerPollIntervalMs,
+	)
+	overrideInt(
+		&c.SchedulerJanitorIntervalMs,
+		SchedulerJanitorIntervalKey,
+		jsonCfg.SchedulerJanitorIntervalMs,
+	)
+	overrideInt(
+		&c.SchedulerMaxMessagesPerPoll,
+		SchedulerMaxMessagesPerPollKey,
+		jsonCfg.SchedulerMaxMessagesPerPoll,
+	)
+	overrideInt(
+		&c.SchedulerPollJitterPercent,
+		SchedulerPollJitterPercentKey,
+		jsonCfg.SchedulerPollJitterPercent,
+	)
+	overrideInt(
+		&c.SchedulerJanitorJitterPercent,
+		SchedulerJanitorJitterPercentKey,
+		jsonCfg.SchedulerJanitorJitterPercent,
+	)
 	overrideInt(&c.ProducerPort, ProducerPortKey, jsonCfg.ProducerPort)
 	overrideInt(&c.ConsumerPort, ConsumerPortKey, jsonCfg.ConsumerPort)
 	overrideInt(&c.HealthPort, HealthPortKey, jsonCfg.HealthPort)
 	overrideInt(&c.MsgTimeoutMs, MsgTimeoutMsKey, jsonCfg.MsgTimeoutMs)
 	overrideInt(&c.MaxRetries, MaxRetriesKey, jsonCfg.MaxRetries)
 	overrideInt(&c.MaxPayloadSizeKb, MaxPayloadSizeKbKey, jsonCfg.MaxPayloadSizeKb)
-	overrideInt(&c.MinScheduledAtFutureMs, MinScheduledAtFutureMsKey, jsonCfg.MinScheduledAtFutureMs)
+	overrideInt(
+		&c.MinScheduledAtFutureMs,
+		MinScheduledAtFutureMsKey,
+		jsonCfg.MinScheduledAtFutureMs,
+	)
 	overrideInt(&c.HealthCheckIntervalMs, HealthCheckIntervalKey, jsonCfg.HealthCheckIntervalMs)
 	overrideInt(&c.BufferFlushIntervalMs, BufferFlushIntervalKey, jsonCfg.BufferFlushIntervalMs)
 	overrideInt(&c.BufferMaxSizeKb, BufferMaxSizeKbKey, jsonCfg.BufferMaxSizeKb)
 	overrideInt(&c.BufferWorkerCount, BufferWorkerCountKey, jsonCfg.BufferWorkerCount)
 	overrideInt(&c.BufferAdaptiveMaxSize, BufferAdaptiveMaxSizeKey, jsonCfg.BufferAdaptiveMaxSize)
-	overrideInt(&c.BufferAdaptiveTuneThreshold, BufferAdaptiveTuneThresholdKey, jsonCfg.BufferAdaptiveTuneThreshold)
+	overrideInt(
+		&c.BufferAdaptiveTuneThreshold,
+		BufferAdaptiveTuneThresholdKey,
+		jsonCfg.BufferAdaptiveTuneThreshold,
+	)
 	overrideInt(&c.BufferAdaptiveMinSize, BufferAdaptiveMinSizeKey, jsonCfg.BufferAdaptiveMinSize)
 	overrideBool(&c.BufferAdaptive, BufferAdaptiveKey, jsonCfg.BufferAdaptive)
 	overrideString(&c.LogLevel, LogLevelKey, jsonCfg.LogLevel)
@@ -386,7 +418,11 @@ func (c *Config) applyEnvOverrides(jsonCfg *JSONConfig) {
 	overrideBool(&c.MultiRegionSupplement, MultiRegionSupplementKey, jsonCfg.MultiRegionSupplement)
 	overrideBool(&c.MultiRegionScheduler, MultiRegionSchedulerKey, jsonCfg.MultiRegionScheduler)
 	overrideBool(&c.MultiRegionJanitor, MultiRegionJanitorKey, jsonCfg.MultiRegionJanitor)
-	overrideBool(&c.JanitorDeleteFailedMessages, JanitorDeleteFailedMessagesKey, jsonCfg.JanitorDeleteFailedMessages)
+	overrideBool(
+		&c.JanitorDeleteFailedMessages,
+		JanitorDeleteFailedMessagesKey,
+		jsonCfg.JanitorDeleteFailedMessages,
+	)
 	overrideInt(&c.PostgresMaxOpenConns, PostgresMaxOpenConnsKey, jsonCfg.PostgresMaxOpenConns)
 	overrideInt(&c.PostgresMaxIdleConns, PostgresMaxIdleConnsKey, jsonCfg.PostgresMaxIdleConns)
 	overrideInt(&c.CockroachMaxOpenConns, CockroachMaxOpenConnsKey, jsonCfg.CockroachMaxOpenConns)

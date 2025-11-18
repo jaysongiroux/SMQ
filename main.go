@@ -95,14 +95,22 @@ func main() {
 		StaleAcquiredThreshold: time.Duration(cfg.MsgTimeoutMs) * time.Millisecond,
 		JanitorInterval:        time.Duration(cfg.SchedulerJanitorIntervalMs) * time.Millisecond,
 		JanitorJitterPercent:   cfg.SchedulerJanitorJitterPercent,
-		StaleNodeThreshold:     time.Duration(cfg.HealthCheckIntervalMs) * time.Millisecond * 2, // Remove nodes after 2x health check interval
-		CBMaxFailures:          cfg.CBMaxFailures,
-		CBTimeout:              time.Duration(cfg.CBTimeout) * time.Millisecond,
-		CBResetTimeout:         time.Duration(cfg.CBResetTimeout) * time.Millisecond,
-		HalfOpenMaxReqs:        cfg.HalfOpenMaxReqs,
+		StaleNodeThreshold: time.Duration(
+			cfg.HealthCheckIntervalMs,
+		) * time.Millisecond * 2, // Remove nodes after 2x health check interval
+		CBMaxFailures:   cfg.CBMaxFailures,
+		CBTimeout:       time.Duration(cfg.CBTimeout) * time.Millisecond,
+		CBResetTimeout:  time.Duration(cfg.CBResetTimeout) * time.Millisecond,
+		HalfOpenMaxReqs: cfg.HalfOpenMaxReqs,
 	}
 	schedulerLog := log.WithService("scheduler")
-	msgScheduler := scheduler.NewScheduler(schedulerConfig, store, cfg.NumSchedulerNodes, cfg.NumSchedulerJanitorNodes, schedulerLog)
+	msgScheduler := scheduler.NewScheduler(
+		schedulerConfig,
+		store,
+		cfg.NumSchedulerNodes,
+		cfg.NumSchedulerJanitorNodes,
+		schedulerLog,
+	)
 	msgScheduler.Start()
 	defer func() {
 		err = msgScheduler.Stop()
@@ -110,7 +118,11 @@ func main() {
 			log.Error("Failed to stop scheduler: %v", err)
 		}
 	}()
-	log.Info("Scheduler layer initialized with %d scheduler nodes and %d janitor nodes", cfg.NumSchedulerNodes, cfg.NumSchedulerJanitorNodes)
+	log.Info(
+		"Scheduler layer initialized with %d scheduler nodes and %d janitor nodes",
+		cfg.NumSchedulerNodes,
+		cfg.NumSchedulerJanitorNodes,
+	)
 
 	// Initialize producer layer
 	producerLog := log.WithService("producer")
@@ -183,7 +195,11 @@ func main() {
 	producerHandler := producer.NewHandler(prod, producerLog)
 	producerHandler.RegisterRoutes(producerMux)
 	producerWithMiddleware := middleware.LoggingMiddleware(producerLog)(authMiddleware(producerMux))
-	producerServer := utils.StartHTTPServer(fmt.Sprintf(":%d", producerPort), producerWithMiddleware, producerLog)
+	producerServer := utils.StartHTTPServer(
+		fmt.Sprintf(":%d", producerPort),
+		producerWithMiddleware,
+		producerLog,
+	)
 	servers = append(servers, producerServer)
 	log.Info("Producer server started on port %d", producerPort)
 
@@ -192,7 +208,11 @@ func main() {
 	consumerHandler := consumer.NewHandler(cons, consumerLog)
 	consumerHandler.RegisterRoutes(consumerMux)
 	consumerWithMiddleware := middleware.LoggingMiddleware(consumerLog)(authMiddleware(consumerMux))
-	consumerServer := utils.StartHTTPServer(fmt.Sprintf(":%d", cfg.ConsumerPort), consumerWithMiddleware, consumerLog)
+	consumerServer := utils.StartHTTPServer(
+		fmt.Sprintf(":%d", cfg.ConsumerPort),
+		consumerWithMiddleware,
+		consumerLog,
+	)
 	servers = append(servers, consumerServer)
 	log.Info("Consumer server started on port %d", cfg.ConsumerPort)
 
@@ -201,7 +221,11 @@ func main() {
 	healthHandler := health.NewHandler(healthChecker, healthLog)
 	healthHandler.RegisterRoutes(healthMux)
 	healthWithMiddleware := middleware.LoggingMiddleware(healthLog)(authMiddleware(healthMux))
-	healthServer := utils.StartHTTPServer(fmt.Sprintf(":%d", cfg.HealthPort), healthWithMiddleware, healthLog)
+	healthServer := utils.StartHTTPServer(
+		fmt.Sprintf(":%d", cfg.HealthPort),
+		healthWithMiddleware,
+		healthLog,
+	)
 	servers = append(servers, healthServer)
 	log.Info("Health server started on port %d", cfg.HealthPort)
 

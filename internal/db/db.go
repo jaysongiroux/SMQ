@@ -26,7 +26,10 @@ type Store interface {
 
 	// MarkStaleAcquiredMessagesAsReady handles stale acquired messages (janitor function)
 	// For messages that remain 'acquired' too long (consumer died without ack/nack)
-	MarkStaleAcquiredMessagesAsReady(ctx context.Context, staleThreshold time.Duration) (int64, error)
+	MarkStaleAcquiredMessagesAsReady(
+		ctx context.Context,
+		staleThreshold time.Duration,
+	) (int64, error)
 
 	// Consumer operations
 	// AcquireNextMessage atomically finds and locks a list of ready message using SELECT FOR UPDATE SKIP LOCKED
@@ -48,7 +51,12 @@ type Store interface {
 
 	// Node operations
 	RegisterNode(ctx context.Context, node *models.Node) error
-	UpdateNode(ctx context.Context, nodeID string, status string, metadata map[string]interface{}) error
+	UpdateNode(
+		ctx context.Context,
+		nodeID string,
+		status string,
+		metadata map[string]interface{},
+	) error
 	DeleteNode(ctx context.Context, nodeID string) error
 	DeleteStaleNodes(ctx context.Context, staleThreshold time.Duration) (int64, error)
 	ListNodes(ctx context.Context, limit int, offset int) ([]*models.Node, error)

@@ -12,27 +12,36 @@ import (
 
 // mockStore implements db.Store interface for testing
 type MockStore struct {
-	MarkPendingCount         int64
-	MarkPendingError         error
-	MarkStaleCount           int64
-	MarkStaleError           error
-	DeleteStaleNodesCount    int64
-	DeleteStaleNodesError    error
-	CleanFailedMessagesCount int64
-	CleanFailedMessagesError error
-	MarkPendingCalls         int
-	MarkStaleCalls           int
-	DeleteStaleNodesCalls    int
-	AckMessageCalls          int
-	NackMessageCalls         int
-	DeleteCalls              int
-	DeleteError              error
-	CleanFailedMessagesCalls int
-	Mu                       sync.Mutex
-	DeleteNotFound           bool
+	BatchCreateMessagesCalled int
+	MarkPendingCount          int64
+	MarkPendingError          error
+	MarkStaleCount            int64
+	MarkStaleError            error
+	DeleteStaleNodesCount     int64
+	DeleteStaleNodesError     error
+	CleanFailedMessagesCount  int64
+	BatchCreateError          error
+	CleanFailedMessagesError  error
+	MarkPendingCalls          int
+	MarkStaleCalls            int
+	DeleteStaleNodesCalls     int
+	AckMessageCalls           int
+	NackMessageCalls          int
+	DeleteCalls               int
+	DeleteError               error
+	CleanFailedMessagesCalls  int
+	Mu                        sync.Mutex
+	DeleteNotFound            bool
 }
 
 func (m *MockStore) BatchCreateMessages(ctx context.Context, msgs []*models.Message) error {
+	m.Mu.Lock()
+	defer m.Mu.Unlock()
+	m.BatchCreateMessagesCalled++
+	if m.BatchCreateError != nil {
+		return m.BatchCreateError
+	}
+
 	return nil
 }
 
@@ -52,11 +61,18 @@ func (m *MockStore) DeleteMessage(ctx context.Context, messageID uuid.UUID) erro
 	return nil
 }
 
-func (m *MockStore) UpdateMessageStatus(ctx context.Context, id uuid.UUID, status models.MessageStatus) error {
+func (m *MockStore) UpdateMessageStatus(
+	ctx context.Context,
+	id uuid.UUID,
+	status models.MessageStatus,
+) error {
 	return nil
 }
 
-func (m *MockStore) MarkPendingMessagesAsReady(ctx context.Context, currentTime time.Time) (int64, error) {
+func (m *MockStore) MarkPendingMessagesAsReady(
+	ctx context.Context,
+	currentTime time.Time,
+) (int64, error) {
 	m.Mu.Lock()
 	defer m.Mu.Unlock()
 	m.MarkPendingCalls++
@@ -66,7 +82,10 @@ func (m *MockStore) MarkPendingMessagesAsReady(ctx context.Context, currentTime 
 	return m.MarkPendingCount, nil
 }
 
-func (m *MockStore) MarkStaleAcquiredMessagesAsReady(ctx context.Context, staleThreshold time.Duration) (int64, error) {
+func (m *MockStore) MarkStaleAcquiredMessagesAsReady(
+	ctx context.Context,
+	staleThreshold time.Duration,
+) (int64, error) {
 	m.Mu.Lock()
 	defer m.Mu.Unlock()
 	m.MarkStaleCalls++
@@ -76,7 +95,11 @@ func (m *MockStore) MarkStaleAcquiredMessagesAsReady(ctx context.Context, staleT
 	return m.MarkStaleCount, nil
 }
 
-func (m *MockStore) AcquireNextMessage(ctx context.Context, channel string, max int) ([]*models.Message, error) {
+func (m *MockStore) AcquireNextMessage(
+	ctx context.Context,
+	channel string,
+	max int,
+) ([]*models.Message, error) {
 	return nil, nil
 }
 
@@ -98,7 +121,11 @@ func (m *MockStore) CleanFailedMessages(ctx context.Context) (int64, error) {
 	return m.CleanFailedMessagesCount, nil
 }
 
-func (m *MockStore) ListChannels(ctx context.Context, limit int, offset int) ([]*models.Channel, error) {
+func (m *MockStore) ListChannels(
+	ctx context.Context,
+	limit int,
+	offset int,
+) ([]*models.Channel, error) {
 	return nil, nil
 }
 
@@ -106,7 +133,12 @@ func (m *MockStore) RegisterNode(ctx context.Context, node *models.Node) error {
 	return nil
 }
 
-func (m *MockStore) UpdateNode(ctx context.Context, nodeID string, status string, metadata map[string]interface{}) error {
+func (m *MockStore) UpdateNode(
+	ctx context.Context,
+	nodeID string,
+	status string,
+	metadata map[string]interface{},
+) error {
 	return nil
 }
 
@@ -114,7 +146,10 @@ func (m *MockStore) DeleteNode(ctx context.Context, nodeID string) error {
 	return nil
 }
 
-func (m *MockStore) DeleteStaleNodes(ctx context.Context, staleThreshold time.Duration) (int64, error) {
+func (m *MockStore) DeleteStaleNodes(
+	ctx context.Context,
+	staleThreshold time.Duration,
+) (int64, error) {
 	m.Mu.Lock()
 	defer m.Mu.Unlock()
 	m.DeleteStaleNodesCalls++

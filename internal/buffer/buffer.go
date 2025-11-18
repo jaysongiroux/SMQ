@@ -22,6 +22,7 @@ type GenericBuffer struct {
 }
 
 // generic retry flush function
+// with exponential backoff
 func RetryFlush(
 	ctx context.Context,
 	log *logger.Logger,
@@ -35,7 +36,9 @@ func RetryFlush(
 		if shiftAmount < 0 {
 			shiftAmount = 0
 		}
-		delay := baseDelay * time.Duration(1<<uint(shiftAmount)) // #nosec G115 - shiftAmount is always >= 0
+		delay := baseDelay * time.Duration(
+			1<<uint(shiftAmount),
+		) // #nosec G115 - shiftAmount is always >= 0
 		log.Warn("Retry flush in %d retrying flush in %v (attempt %d/%d)",
 			workerID, delay, attempt, maxRetries)
 
@@ -89,8 +92,11 @@ func TuneAdaptiveSettings(
 	if batchWasFull && !flushOverlapRisk && flushDuration < (flushInterval/4) {
 		// Flushes are fast and we're hitting capacity - increase batch size
 		adaptiveMaxSize = min(adaptiveMaxSize*2, adaptiveMaxSize)
-		log.Info("Adaptive tuning: Increasing max batch size from %d to %d (fast flushes, high throughput)",
-			oldMaxSize, adaptiveMaxSize)
+		log.Info(
+			"Adaptive tuning: Increasing max batch size from %d to %d (fast flushes, high throughput)",
+			oldMaxSize,
+			adaptiveMaxSize,
+		)
 
 	} else if flushOverlapRisk {
 		// Flushes are slow and risk overlapping with interval - reduce batch size
@@ -114,7 +120,12 @@ func TuneAdaptiveSettings(
 	}
 }
 
-func FlushTicker(b *GenericBuffer, flushInterval time.Duration, adaptiveEnabled bool, log *logger.Logger) {
+func FlushTicker(
+	b *GenericBuffer,
+	flushInterval time.Duration,
+	adaptiveEnabled bool,
+	log *logger.Logger,
+) {
 	defer b.wg.Done()
 
 	log.Debug("Flush ticker started with interval: %v (adaptive: %v)",
@@ -138,8 +149,11 @@ func FlushTicker(b *GenericBuffer, flushInterval time.Duration, adaptiveEnabled 
 			b.mu.Unlock()
 
 			if shouldFlush {
-				log.Debug("Flush interval reached (%v since last flush) with %d messages - triggering flush",
-					timeSinceFlush, batchSize)
+				log.Debug(
+					"Flush interval reached (%v since last flush) with %d messages - triggering flush",
+					timeSinceFlush,
+					batchSize,
+				)
 				b.triggerFlush()
 			}
 

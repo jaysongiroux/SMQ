@@ -80,12 +80,22 @@ func (c *Consumer) Health() *models.ComponentHealth {
 // PollMessages retrieves ready messages for the given channel
 // This atomically queries the database using SELECT FOR UPDATE SKIP LOCKED
 // to ensure no two consumers can retrieve the same message
-func (c *Consumer) PollMessages(ctx context.Context, channelID string, max int, subsidize bool) ([]*models.Message, error) {
+func (c *Consumer) PollMessages(
+	ctx context.Context,
+	channelID string,
+	max int,
+	subsidize bool,
+) ([]*models.Message, error) {
 	c.mu.Lock()
 	c.lastActive = time.Now()
 	c.mu.Unlock()
 
-	c.log.Debug("Polling up to %d messages from channel %s (subsidize: %v)", max, channelID, subsidize)
+	c.log.Debug(
+		"Polling up to %d messages from channel %s (subsidize: %v)",
+		max,
+		channelID,
+		subsidize,
+	)
 
 	// Acquire messages up to max
 	msgs, err := c.store.AcquireNextMessage(ctx, channelID, max)

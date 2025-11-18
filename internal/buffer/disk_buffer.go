@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -75,6 +76,12 @@ func NewDiskBuffer(config *Config, store db.Store, log *logger.Logger) (*DiskBuf
 	// Open or create WAL file
 	var err error
 	// check if WAL file exists
+	// Check if directory exists first
+	walDir := filepath.Dir(b.walPath)
+	if _, err := os.Stat(walDir); os.IsNotExist(err) {
+		return nil, fmt.Errorf("WAL directory does not exist: %s", walDir)
+	}
+
 	if _, err := os.Stat(b.walPath); os.IsNotExist(err) {
 		// create WAL file
 		b.walFile, err = os.OpenFile(b.walPath, os.O_CREATE|os.O_RDWR|os.O_APPEND, 0600)
@@ -148,8 +155,14 @@ func (b *DiskBuffer) Start() {
 	if b.config.Adaptive {
 		adaptiveStr = "enabled"
 	}
-	b.log.Info("Starting disk buffer with config: max_size=%d, flush_interval=%v, worker_count=%d, wal_path=%s, adaptive=%s",
-		b.config.MaxSize, b.config.FlushInterval, b.config.WorkerCount, b.walPath, adaptiveStr)
+	b.log.Info(
+		"Starting disk buffer with config: max_size=%d, flush_interval=%v, worker_count=%d, wal_path=%s, adaptive=%s",
+		b.config.MaxSize,
+		b.config.FlushInterval,
+		b.config.WorkerCount,
+		b.walPath,
+		adaptiveStr,
+	)
 
 	for i := 0; i < b.config.WorkerCount; i++ {
 		b.wg.Add(1)

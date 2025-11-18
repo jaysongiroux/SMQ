@@ -75,14 +75,21 @@ func (s *CockroachStore) DeleteMessage(ctx context.Context, id uuid.UUID) error 
 }
 
 // UpdateMessageStatus updates the status of a message
-func (s *CockroachStore) UpdateMessageStatus(ctx context.Context, id uuid.UUID, status models.MessageStatus) error {
+func (s *CockroachStore) UpdateMessageStatus(
+	ctx context.Context,
+	id uuid.UUID,
+	status models.MessageStatus,
+) error {
 	return pg.UpdateMessageStatus(ctx, id, status, s.log, s.db)
 }
 
 // MarkPendingMessagesAsReady updates pending messages that are ready
 // Uses FOR UPDATE SKIP LOCKED for optimal concurrency with multiple scheduler nodes.
 // This is now conditionally REGION-SPECIFIC. It only updates messages in its own region.
-func (s *CockroachStore) MarkPendingMessagesAsReady(ctx context.Context, currentTime time.Time) (int64, error) {
+func (s *CockroachStore) MarkPendingMessagesAsReady(
+	ctx context.Context,
+	currentTime time.Time,
+) (int64, error) {
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
 		s.log.Error("Failed to begin transaction for scheduler: %v", err)
@@ -119,7 +126,14 @@ func (s *CockroachStore) MarkPendingMessagesAsReady(ctx context.Context, current
 
 	query := fmt.Sprintf(baseQuery, regionFilter)
 
-	result, err := tx.ExecContext(ctx, query, models.StatusPending, currentTime, s.config.MaxMessagesPerPoll, models.StatusReady)
+	result, err := tx.ExecContext(
+		ctx,
+		query,
+		models.StatusPending,
+		currentTime,
+		s.config.MaxMessagesPerPoll,
+		models.StatusReady,
+	)
 	if err != nil {
 		s.log.Error("Failed to mark pending messages as ready: %v", err)
 		return 0, fmt.Errorf("failed to mark pending messages as ready: %w", err)
@@ -140,7 +154,10 @@ func (s *CockroachStore) MarkPendingMessagesAsReady(ctx context.Context, current
 
 // MarkStaleAcquiredMessagesAsReady marks stale acquired messages as ready
 // This is now conditionally REGION-SPECIFIC. It only cleans up stale messages from its own region.
-func (s *CockroachStore) MarkStaleAcquiredMessagesAsReady(ctx context.Context, staleThreshold time.Duration) (int64, error) {
+func (s *CockroachStore) MarkStaleAcquiredMessagesAsReady(
+	ctx context.Context,
+	staleThreshold time.Duration,
+) (int64, error) {
 	staleTime := time.Now().Add(-staleThreshold)
 
 	baseQuery := `
@@ -160,7 +177,13 @@ func (s *CockroachStore) MarkStaleAcquiredMessagesAsReady(ctx context.Context, s
 
 	query := fmt.Sprintf(baseQuery, regionFilter)
 
-	result, err := s.db.ExecContext(ctx, query, models.StatusReady, models.StatusAcquired, staleTime)
+	result, err := s.db.ExecContext(
+		ctx,
+		query,
+		models.StatusReady,
+		models.StatusAcquired,
+		staleTime,
+	)
 	if err != nil {
 		s.log.Error("Failed to mark stale acquired messages as ready: %v", err)
 		return 0, fmt.Errorf("failed to mark stale acquired messages as ready: %w", err)
@@ -176,7 +199,12 @@ func (s *CockroachStore) MarkStaleAcquiredMessagesAsReady(ctx context.Context, s
 
 // acquireMessages is a helper function to run the atomic acquire query.
 // It can be targeted at the local region or non-local regions.
-func (s *CockroachStore) acquireMessages(ctx context.Context, channel string, limit int, localOnly bool) ([]*models.Message, error) {
+func (s *CockroachStore) acquireMessages(
+	ctx context.Context,
+	channel string,
+	limit int,
+	localOnly bool,
+) ([]*models.Message, error) {
 	tx, err := s.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to begin transaction: %w", err)
@@ -225,7 +253,13 @@ func (s *CockroachStore) acquireMessages(ctx context.Context, channel string, li
 
 	rows, err := tx.QueryContext(ctx, finalQuery, channel, limit)
 	if err != nil {
-		s.log.Error("Failed to atomically acquire messages (localOnly=%t) for channel %s: %v. Query: %s", localOnly, channel, err, finalQuery)
+		s.log.Error(
+			"Failed to atomically acquire messages (localOnly=%t) for channel %s: %v. Query: %s",
+			localOnly,
+			channel,
+			err,
+			finalQuery,
+		)
 		return nil, err
 	}
 	defer func() {
@@ -272,7 +306,11 @@ func (s *CockroachStore) acquireMessages(ctx context.Context, channel string, li
 
 // AcquireNextMessage atomically acquires the next ready message.
 // conditionally multi-region aware and respects the MultiRegionSupplement config.
-func (s *CockroachStore) AcquireNextMessage(ctx context.Context, channel string, max int) ([]*models.Message, error) {
+func (s *CockroachStore) AcquireNextMessage(
+	ctx context.Context,
+	channel string,
+	max int,
+) ([]*models.Message, error) {
 	// Step 1: Attempt to acquire messages from the local region first.
 	localMessages, err := s.acquireMessages(ctx, channel, max, true)
 	if err != nil {
@@ -316,7 +354,11 @@ func (s *CockroachStore) NackMessage(ctx context.Context, ids []uuid.UUID) error
 
 // ListChannels retrieves all channels with pagination
 // Uses a fast, slightly-stale follower read for performance.
-func (s *CockroachStore) ListChannels(ctx context.Context, limit int, offset int) ([]*models.Channel, error) {
+func (s *CockroachStore) ListChannels(
+	ctx context.Context,
+	limit int,
+	offset int,
+) ([]*models.Channel, error) {
 	return pg.ListChannels(ctx, limit, offset, s.log, s.db, true)
 }
 
@@ -327,7 +369,12 @@ func (s *CockroachStore) RegisterNode(ctx context.Context, node *models.Node) er
 }
 
 // UpdateNode updates a node's status and metadata
-func (s *CockroachStore) UpdateNode(ctx context.Context, nodeID string, status string, metadata map[string]interface{}) error {
+func (s *CockroachStore) UpdateNode(
+	ctx context.Context,
+	nodeID string,
+	status string,
+	metadata map[string]interface{},
+) error {
 	return pg.UpdateNode(ctx, nodeID, status, metadata, s.log, s.db)
 }
 
@@ -337,12 +384,19 @@ func (s *CockroachStore) DeleteNode(ctx context.Context, nodeID string) error {
 }
 
 // DeleteStaleNodes removes nodes that haven't been seen within the staleThreshold duration
-func (s *CockroachStore) DeleteStaleNodes(ctx context.Context, staleThreshold time.Duration) (int64, error) {
+func (s *CockroachStore) DeleteStaleNodes(
+	ctx context.Context,
+	staleThreshold time.Duration,
+) (int64, error) {
 	return pg.DeleteStaleNodes(ctx, staleThreshold, s.log, s.db)
 }
 
 // ListNodes retrieves all nodes in the cluster with pagination
-func (s *CockroachStore) ListNodes(ctx context.Context, limit int, offset int) ([]*models.Node, error) {
+func (s *CockroachStore) ListNodes(
+	ctx context.Context,
+	limit int,
+	offset int,
+) ([]*models.Node, error) {
 	return pg.ListNodes(ctx, limit, offset, s.log, s.db)
 }
 

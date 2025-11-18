@@ -94,8 +94,13 @@ func (b *MemoryBuffer) Start() {
 	if b.config.Adaptive {
 		adaptiveStr = "enabled"
 	}
-	b.log.Info("Starting memory buffer with config: max_size=%d, flush_interval=%v, worker_count=%d, adaptive=%s",
-		b.config.MaxSize, b.config.FlushInterval, b.config.WorkerCount, adaptiveStr)
+	b.log.Info(
+		"Starting memory buffer with config: max_size=%d, flush_interval=%v, worker_count=%d, adaptive=%s",
+		b.config.MaxSize,
+		b.config.FlushInterval,
+		b.config.WorkerCount,
+		adaptiveStr,
+	)
 
 	// Start flush workers
 	for i := 0; i < b.config.WorkerCount; i++ {
@@ -256,7 +261,11 @@ func (b *MemoryBuffer) Add(msg *models.Message) error {
 		return b.ctx.Err()
 	default:
 		// Channel is full
-		b.log.Error("Message channel is full - dropping message %s (channel: %s)", msg.ID, msg.Channel)
+		b.log.Error(
+			"Message channel is full - dropping message %s (channel: %s)",
+			msg.ID,
+			msg.Channel,
+		)
 		b.mu.Lock()
 		b.messagesDropped++
 		b.mu.Unlock()

@@ -36,7 +36,13 @@ func (h *HealthChecker) Store() db.Store {
 	return h.store
 }
 
-func NewHealthChecker(config *config.Config, store db.Store, nodeID string, checkInterval time.Duration, log *logger.Logger) *HealthChecker {
+func NewHealthChecker(
+	config *config.Config,
+	store db.Store,
+	nodeID string,
+	checkInterval time.Duration,
+	log *logger.Logger,
+) *HealthChecker {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &HealthChecker{
@@ -61,7 +67,9 @@ func (h *HealthChecker) RegisterReporter(reporter models.HealthReporter) {
 	h.log.Debug("Registered health reporter: %s", componentHealth.Name)
 }
 
-func (h *HealthChecker) RegisterSchedulerHealth(healthFunc func() map[string]*models.ComponentHealth) {
+func (h *HealthChecker) RegisterSchedulerHealth(
+	healthFunc func() map[string]*models.ComponentHealth,
+) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.schedulerHealth = healthFunc
@@ -120,7 +128,12 @@ func (h *HealthChecker) checkAndStoreHealth() {
 		componentHealth := reporter.Health()
 		layerName := componentHealth.Name
 
-		h.log.Debug("Component %s: %s - %s", layerName, componentHealth.Status, componentHealth.Message)
+		h.log.Debug(
+			"Component %s: %s - %s",
+			layerName,
+			componentHealth.Status,
+			componentHealth.Message,
+		)
 
 		if systemHealth.Layers[layerName] == nil {
 			systemHealth.Layers[layerName] = &models.LayerHealth{
@@ -152,7 +165,12 @@ func (h *HealthChecker) checkAndStoreHealth() {
 		}
 
 		for nodeName, nodeHealth := range schedulerNodes {
-			h.log.Debug("Scheduler node %s: %s - %s", nodeName, nodeHealth.Status, nodeHealth.Message)
+			h.log.Debug(
+				"Scheduler node %s: %s - %s",
+				nodeName,
+				nodeHealth.Status,
+				nodeHealth.Message,
+			)
 
 			if nodeHealth.Status == models.HealthStatusUnhealthy {
 				systemHealth.Layers["scheduler"].Status = models.HealthStatusUnhealthy
@@ -173,7 +191,10 @@ func (h *HealthChecker) checkAndStoreHealth() {
 			systemHealth.Status = models.HealthStatusUnhealthy
 			for nodeName, node := range layer.Nodes {
 				if node.Status == models.HealthStatusUnhealthy {
-					unhealthyComponents = append(unhealthyComponents, fmt.Sprintf("%s/%s", layerName, nodeName))
+					unhealthyComponents = append(
+						unhealthyComponents,
+						fmt.Sprintf("%s/%s", layerName, nodeName),
+					)
 				}
 			}
 		} else if layer.Status == models.HealthStatusDegraded &&
@@ -204,7 +225,10 @@ func (h *HealthChecker) checkAndStoreHealth() {
 		}
 	case models.HealthStatusUnhealthy:
 		if len(unhealthyComponents) > 0 {
-			h.log.Error("System health: UNHEALTHY - Critical components down: %v", unhealthyComponents)
+			h.log.Error(
+				"System health: UNHEALTHY - Critical components down: %v",
+				unhealthyComponents,
+			)
 		} else {
 			h.log.Error("System health: UNHEALTHY (critical components down)")
 		}

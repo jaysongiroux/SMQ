@@ -116,8 +116,13 @@ func (s *Scheduler) Start() {
 
 		s.wg.Add(1)
 		go s.janitorLoop(node)
-		s.log.Debug("Started janitor node %d (interval: %v, stale message threshold: %v, stale node threshold: %v)",
-			node.id, s.config.JanitorInterval, s.config.StaleAcquiredThreshold, s.config.StaleNodeThreshold)
+		s.log.Debug(
+			"Started janitor node %d (interval: %v, stale message threshold: %v, stale node threshold: %v)",
+			node.id,
+			s.config.JanitorInterval,
+			s.config.StaleAcquiredThreshold,
+			s.config.StaleNodeThreshold,
+		)
 	}
 
 	s.log.Info("Scheduler started successfully")
@@ -130,7 +135,11 @@ func (s *Scheduler) Stop() error {
 
 	for _, node := range s.schedulerNodes {
 		node.mu.Lock()
-		s.log.Info("Scheduler node %d stopped (total messages marked: %d)", node.id, node.messagesMarked)
+		s.log.Info(
+			"Scheduler node %d stopped (total messages marked: %d)",
+			node.id,
+			node.messagesMarked,
+		)
 		node.isRunning = false
 		node.mu.Unlock()
 	}
@@ -230,7 +239,10 @@ func (s *Scheduler) getSchedulerHealth() map[string]*models.ComponentHealth {
 	return health
 }
 
-func (s *Scheduler) genericSchedulerCircuitBreaker(node *SchedulerNode, fn func(ctx context.Context, node *SchedulerNode) error) {
+func (s *Scheduler) genericSchedulerCircuitBreaker(
+	node *SchedulerNode,
+	fn func(ctx context.Context, node *SchedulerNode) error,
+) {
 	s.log.Debug("Scheduler node %d checking for pending messages", node.id)
 
 	err := node.circuitBreaker.Execute(s.ctx, func(ctx context.Context) error {

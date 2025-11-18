@@ -31,7 +31,13 @@ type Producer struct {
 	maxPayloadSizeKB int
 }
 
-func NewProducer(store db.Store, buf buffer.Buffer, log *logger.Logger, maxPayloadSizeKB int, config *config.Config) *Producer {
+func NewProducer(
+	store db.Store,
+	buf buffer.Buffer,
+	log *logger.Logger,
+	maxPayloadSizeKB int,
+	config *config.Config,
+) *Producer {
 	return &Producer{
 		store:            store,
 		buffer:           buf,
@@ -58,8 +64,13 @@ func (p *Producer) Stop() error {
 
 	p.isRunning = false
 
-	p.log.Info("Producer stopped (created: %d, deleted: %d, creation errors: %d, deletion errors: %d)",
-		p.messagesCreated, p.messagesDeleted, p.creationErrors, p.deletionErrors)
+	p.log.Info(
+		"Producer stopped (created: %d, deleted: %d, creation errors: %d, deletion errors: %d)",
+		p.messagesCreated,
+		p.messagesDeleted,
+		p.creationErrors,
+		p.deletionErrors,
+	)
 	return nil
 }
 
@@ -99,7 +110,10 @@ func formatError(err error) interface{} {
 	return err.Error()
 }
 
-func (p *Producer) CreateMessage(ctx context.Context, req *models.CreateMessageRequest) (uuid.UUID, error) {
+func (p *Producer) CreateMessage(
+	ctx context.Context,
+	req *models.CreateMessageRequest,
+) (uuid.UUID, error) {
 	p.mu.Lock()
 	p.lastActive = time.Now()
 	p.mu.Unlock()
@@ -134,12 +148,21 @@ func (p *Producer) CreateMessage(ctx context.Context, req *models.CreateMessageR
 	scheduledAt := req.ScheduledAt.Time
 	futureInterval := p.config.MinScheduledAtFutureMs
 	if scheduledAt.Before(time.Now().Add(time.Duration(futureInterval) * time.Millisecond)) {
-		p.log.Warn("Message creation failed: scheduled at is not in the future by at least %d ms", futureInterval)
+		p.log.Warn(
+			"Message creation failed: scheduled at is not in the future by at least %d ms",
+			futureInterval,
+		)
 		p.mu.Lock()
 		p.creationErrors++
-		p.lastError = fmt.Errorf("scheduled at is not in the future by at least %d ms", futureInterval)
+		p.lastError = fmt.Errorf(
+			"scheduled at is not in the future by at least %d ms",
+			futureInterval,
+		)
 		p.mu.Unlock()
-		return uuid.Nil, fmt.Errorf("scheduled at is not in the future by at least %d ms", futureInterval)
+		return uuid.Nil, fmt.Errorf(
+			"scheduled at is not in the future by at least %d ms",
+			futureInterval,
+		)
 	}
 
 	payloadSizeBytes := len(req.Payload)
@@ -149,9 +172,17 @@ func (p *Producer) CreateMessage(ctx context.Context, req *models.CreateMessageR
 			payloadSizeKB, p.maxPayloadSizeKB)
 		p.mu.Lock()
 		p.creationErrors++
-		p.lastError = fmt.Errorf("payload size %d KB exceeds maximum %d KB", payloadSizeKB, p.maxPayloadSizeKB)
+		p.lastError = fmt.Errorf(
+			"payload size %d KB exceeds maximum %d KB",
+			payloadSizeKB,
+			p.maxPayloadSizeKB,
+		)
 		p.mu.Unlock()
-		return uuid.Nil, fmt.Errorf("payload size %d KB exceeds maximum %d KB", payloadSizeKB, p.maxPayloadSizeKB)
+		return uuid.Nil, fmt.Errorf(
+			"payload size %d KB exceeds maximum %d KB",
+			payloadSizeKB,
+			p.maxPayloadSizeKB,
+		)
 	}
 
 	messageID := uuid.Must(uuid.NewV7())
