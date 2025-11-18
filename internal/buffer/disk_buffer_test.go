@@ -17,7 +17,7 @@ func createDiskBufferConfig(walPath string) *Config {
 	return &Config{
 		MaxSize:               100,
 		FlushInterval:         100 * time.Millisecond,
-		WorkerCount:           2,
+		WorkerCount:           1,
 		WALPath:               walPath,
 		Adaptive:              false,
 		AdaptiveMaxSize:       1000,

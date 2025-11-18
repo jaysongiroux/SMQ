@@ -15,7 +15,7 @@ func createMemoryBufferConfig() *Config {
 	return &Config{
 		MaxSize:               100,
 		FlushInterval:         100 * time.Millisecond,
-		WorkerCount:           2,
+		WorkerCount:           1,
 		Adaptive:              false,
 		AdaptiveMaxSize:       1000,
 		AdaptiveMinSize:       10,
