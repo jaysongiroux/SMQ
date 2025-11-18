@@ -461,7 +461,7 @@ func (b *MemoryBuffer) tuneAdaptiveSettings(batchSize int, flushDuration time.Du
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	TuneAdaptiveSettings(
+	b.adaptiveMaxSize = TuneAdaptiveSettings(
 		batchSize,
 		b.adaptiveMaxSize,
 		b.adaptiveMinSize,

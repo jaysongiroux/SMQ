@@ -72,11 +72,11 @@ func TuneAdaptiveSettings(
 	flushDuration time.Duration,
 	flushInterval time.Duration,
 	log *logger.Logger,
-) {
+) int {
 
 	// Only tune every N flushes to avoid thrashing
 	if flushCount%int64(adaptiveTuneThreshold) != 0 {
-		return
+		return adaptiveMaxSize
 	}
 
 	oldMaxSize := adaptiveMaxSize
@@ -118,6 +118,8 @@ func TuneAdaptiveSettings(
 			"overlap_risk=%v, was_full=%v, avg_flush=%v",
 			batchSize, flushDuration, flushInterval, flushOverlapRisk, batchWasFull, flushDuration)
 	}
+
+	return adaptiveMaxSize
 }
 
 func FlushTicker(

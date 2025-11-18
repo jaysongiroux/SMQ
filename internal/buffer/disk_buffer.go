@@ -555,7 +555,7 @@ func (b *DiskBuffer) tuneAdaptiveSettings(batchSize int, flushDuration time.Dura
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	TuneAdaptiveSettings(
+	b.adaptiveMaxSize = TuneAdaptiveSettings(
 		batchSize,
 		b.adaptiveMaxSize,
 		b.adaptiveMinSize,
