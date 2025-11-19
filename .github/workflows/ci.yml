@@ -43,8 +43,9 @@ jobs:
 
       - name: Generate coverage report
         run: |
-          go tool cover -func=coverage.out -o=coverage.txt
-          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}')
+          grep -v "_test.go\|_mock.go" coverage.out > coverage_filtered.out || true
+          go tool cover -func=coverage_filtered.out -o=coverage.txt
+          COVERAGE=$(go tool cover -func=coverage_filtered.out | grep total | awk '{print $3}')
           echo "Total Coverage: $COVERAGE" >> $GITHUB_STEP_SUMMARY
           echo "## Test Coverage Report" >> $GITHUB_STEP_SUMMARY
           echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
@@ -57,5 +58,5 @@ jobs:
         with:
           name: coverage-report
           path: |
-            coverage.out
+            coverage_filtered.out
             coverage.txt
