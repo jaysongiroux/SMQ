@@ -23,6 +23,21 @@ type MockStore struct {
 	BatchCreateError          error
 	CleanFailedMessagesError  error
 	MarkPendingCalls          int
+	AcquireNextMessageCalls   int
+	AcquireNextMessageError   error
+	AckMessageError           error
+	NackMessageError          error
+	ListChannelsCalls         int
+	ListChannelsError         error
+	ListChannelsResult        []*models.Channel
+	AcquireNextMessageResult  []*models.Message
+	RegisterNodeResult        *models.Node
+	RegisterNodeError         error
+	RegisterNodeCalls         int
+	LastRegisteredNode        *models.Node
+	ListNodesResult           []*models.Node
+	ListNodesCalls            int
+	ListNodesError            error
 	MarkStaleCalls            int
 	DeleteStaleNodesCalls     int
 	AckMessageCalls           int
@@ -95,19 +110,51 @@ func (m *MockStore) MarkStaleAcquiredMessagesAsReady(
 	return m.MarkStaleCount, nil
 }
 
+func copyMessages(messages []*models.Message) []*models.Message {
+	copied := make([]*models.Message, len(messages))
+	for i, message := range messages {
+		copied[i] = &models.Message{
+			ID: message.ID,
+		}
+	}
+	return copied
+}
+
 func (m *MockStore) AcquireNextMessage(
 	ctx context.Context,
 	channel string,
 	max int,
 ) ([]*models.Message, error) {
-	return nil, nil
+	m.Mu.Lock()
+	defer m.Mu.Unlock()
+	m.AcquireNextMessageCalls++
+	if m.AcquireNextMessageError != nil {
+		return nil, m.AcquireNextMessageError
+	}
+
+	if len(m.AcquireNextMessageResult) > 0 {
+		return copyMessages(m.AcquireNextMessageResult), nil
+	}
+	return []*models.Message{}, nil
 }
 
 func (m *MockStore) AckMessage(ctx context.Context, ids []uuid.UUID) error {
+	m.Mu.Lock()
+	defer m.Mu.Unlock()
+	m.AckMessageCalls++
+	if m.AckMessageError != nil {
+		return m.AckMessageError
+	}
 	return nil
 }
 
 func (m *MockStore) NackMessage(ctx context.Context, ids []uuid.UUID) error {
+	m.Mu.Lock()
+	defer m.Mu.Unlock()
+	m.NackMessageCalls++
+	if m.NackMessageError != nil {
+		return m.NackMessageError
+	}
 	return nil
 }
 
@@ -121,15 +168,41 @@ func (m *MockStore) CleanFailedMessages(ctx context.Context) (int64, error) {
 	return m.CleanFailedMessagesCount, nil
 }
 
+func copyChannels(channels []*models.Channel) []*models.Channel {
+	copied := make([]*models.Channel, len(channels))
+	for i, channel := range channels {
+		copied[i] = &models.Channel{
+			Name: channel.Name,
+		}
+	}
+	return copied
+}
+
 func (m *MockStore) ListChannels(
 	ctx context.Context,
 	limit int,
 	offset int,
 ) ([]*models.Channel, error) {
-	return nil, nil
+	m.Mu.Lock()
+	defer m.Mu.Unlock()
+	m.ListChannelsCalls++
+	if m.ListChannelsError != nil {
+		return nil, m.ListChannelsError
+	}
+	if len(m.ListChannelsResult) > 0 {
+		return copyChannels(m.ListChannelsResult), nil
+	}
+	return []*models.Channel{}, nil
 }
 
 func (m *MockStore) RegisterNode(ctx context.Context, node *models.Node) error {
+	m.Mu.Lock()
+	defer m.Mu.Unlock()
+	m.RegisterNodeCalls++
+	m.LastRegisteredNode = node
+	if m.RegisterNodeError != nil {
+		return m.RegisterNodeError
+	}
 	return nil
 }
 
@@ -159,8 +232,14 @@ func (m *MockStore) DeleteStaleNodes(
 	return m.DeleteStaleNodesCount, nil
 }
 
-func (m *MockStore) ListNodes(ctx context.Context, limit int, offset int) ([]*models.Node, error) {
-	return nil, nil
+func (m *MockStore) ListNodes(ctx context.Context, limit, offset int) ([]*models.Node, error) {
+	m.Mu.Lock()
+	defer m.Mu.Unlock()
+	m.ListNodesCalls++
+	if m.ListNodesError != nil {
+		return nil, m.ListNodesError
+	}
+	return m.ListNodesResult, nil
 }
 
 func (m *MockStore) Ping(ctx context.Context) error {

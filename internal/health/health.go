@@ -45,6 +45,13 @@ func NewHealthChecker(
 ) *HealthChecker {
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// check if nodeID is empty
+	if nodeID == "" {
+		log.Error("nodeID is required, exiting")
+		cancel()
+		return nil
+	}
+
 	return &HealthChecker{
 		config:         config,
 		store:          store,
@@ -245,6 +252,9 @@ func (h *HealthChecker) storeHealthInDatabase() {
 	if err != nil {
 		h.log.Error("Failed to marshal health data: %v", err)
 		return
+	} else if healthJSON == nil {
+		h.log.Debug("Health data is empty, skipping storage")
+		return
 	}
 
 	var metadata map[string]interface{}
@@ -258,6 +268,12 @@ func (h *HealthChecker) storeHealthInDatabase() {
 	// themselves if they were previously removed by the janitor
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	//check if systemHealth.Status is set
+	if h.systemHealth == nil {
+		h.log.Error("systemHealth is nil, skipping health store")
+		return
+	}
 
 	statusStr := string(h.systemHealth.Status)
 	node := &models.Node{
